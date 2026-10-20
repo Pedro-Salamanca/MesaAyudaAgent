@@ -1,0 +1,67 @@
+# =====================================================================
+# GITIGNORE - SEGURIDAD Y PRIVACIDAD CORPORATIVA (SOMOS NETWORK)
+# =====================================================================
+
+# 1. CREDENCIALES, SECRETOS Y CLAVES DE API (CRÍTICO)
+.env
+.env.*
+*.env
+!.env.example
+*.key
+*.pem
+*secret*
+*credential*
+
+# 2. BASES DE DATOS, WAL Y REPLICAS
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+memory_v3.db
+memory.db
+Backup_DB/
+
+# 3. CASOS HISTÓRICOS Y CHECKPOINTS DE CUBETAS
+data/
+Cases/
+caso_*.json
+active_buckets_checkpoint.json
+*.jsonl
+
+# 4. CAPTURAS DE PANTALLA E IMÁGENES
+Images/
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+
+# 5. ARCHIVOS DE COMPILACIÓN Y EJECUTABLES BINARIOS
+dist/
+build/
+*.exe
+*.spec
+*.bin
+
+# 6. BYTECODE Y CACHÉ DE PYTHON
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# 7. LOGS Y ARCHIVOS TEMPORALES
+*.log
+logs/
+*.tmp
+*.temp
+sitios_ignorados.txt
+
+# 8. ARCHIVOS DE SISTEMA OPERATIVO E IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
