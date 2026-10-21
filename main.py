@@ -208,8 +208,12 @@ class MesaAyudaAgentApp:
             self.app.after(0, self.app.append_chat, "Agente", "☕ Turno en pausa (Break/Comida). No capturaré pantallas hasta que pulses '▶️ Reanudar Turno'.")
             log.info("Pausa de turno (Break) activada.")
         else:
-            self.app.set_state("active")
-            self.app.after(0, self.app.update_inference_output, "▶️ Turno reanudado. Observando y asociando cubetas activas...")
+            if self.is_learning_mode:
+                self.app.set_state("learning")
+                self.app.after(0, self.app.update_inference_output, "🎓 Modo Solo Aprendizaje activo. Capturando y comprimiendo atenciones...")
+            else:
+                self.app.set_state("active")
+                self.app.after(0, self.app.update_inference_output, "▶️ Turno reanudado. Observando y asociando cubetas activas...")
             self.app.after(0, self.app.append_chat, "Agente", "▶️ Turno reanudado. Retomando observación técnica en Artemis y herramientas.")
             log.info("Turno reanudado tras el break.")
 
@@ -234,11 +238,16 @@ class MesaAyudaAgentApp:
         comprime bloques cada 8 pasos y auto-cierra tras 10 min de inactividad para su posterior evaluación.
         """
         self.is_learning_mode = enabled
+        self.is_asking = False
+        self.current_agent_suggestion = ""
+        self.last_problem_signature = ""
         if enabled:
+            self.app.set_state("learning")
             self.app.after(0, self.app.append_chat, "Agente", "🎓 Modo Solo Aprendizaje ACTIVADO.\nObservaré en segundo plano sin interrumpirte. Toda atención se guardará como tarjeta para que la evalúes cuando desees.")
             self.app.after(0, self.app.update_inference_output, "🎓 Modo Solo Aprendizaje activo. Capturando y comprimiendo atenciones en segundo plano...")
             log.info("Modo Solo Aprendizaje activado.")
         else:
+            self.app.set_state("active")
             self.app.after(0, self.app.append_chat, "Agente", "🎓 Modo Solo Aprendizaje DESACTIVADO. Asistencia interactiva en vivo restaurada.")
             self.app.after(0, self.app.update_inference_output, "Asistencia interactiva en vivo restaurada.")
             log.info("Modo Solo Aprendizaje desactivado.")
@@ -667,9 +676,10 @@ class MesaAyudaAgentApp:
                                     else:
                                         self.app.after(0, self.app.update_eye_output, raw_text)
 
-                                        # En modo Solo Aprendizaje, omitir prompts interactivos
+                                        # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
                                         if self.is_learning_mode:
-                                            self.app.after(0, self.app.update_inference_output, f"🎓 Aprendiendo en segundo plano: {target_bucket.tecnico_campo} ({target_bucket.total_steps_lifetime} pasos acumulados)...")
+                                            self.is_asking = False
+                                            self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
                                         elif not self.is_asking:
                                             self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
                                             analisis = self.llm.analizar_texto_pantalla(raw_text)

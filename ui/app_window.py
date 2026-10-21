@@ -1,14 +1,65 @@
 import customtkinter as ctk
+import tkinter as tk
 from typing import Optional, List, Dict
 from core.logger import log
 
+# =============================================================================
+# SOMOS — DESIGN SYSTEM MASTER TOKENS (Fuente Oficial de Verdad Visual)
+# =============================================================================
+# Fondos (Regla crítica: Nunca #000000 como negro base)
+COLOR_BG_APP = "#0A0A0A"          # Fondo principal oficial
+COLOR_BG_SURFACE = "#171717"      # Panels, cards, sidebars
+COLOR_BG_ELEVATED = "#222222"     # Hover, elementos elevados, botones secundarios
+COLOR_BORDER = "#373737"          # Bordes y separadores estándar (1px solid #373737)
+COLOR_BORDER_SUBTLE = "#222222"   # Separadores sutiles
+
+# Textos
+COLOR_TEXT_PRIMARY = "#FFFFFF"    # Títulos, información principal
+COLOR_TEXT_SECONDARY = "#F5F5F5"  # Subtítulos, contenido secundario
+COLOR_TEXT_MUTED = "#E5E5E5"      # Labels, metadata, notas técnicas
+COLOR_TEXT_DISABLED = "#373737"
+
+# Acentos SOMOS
+COLOR_ACCENT = "#26B3EC"          # Acento principal azul/cyan SOMOS
+COLOR_ACCENT_HOVER = "#1A8FBF"
+COLOR_ACCENT_SUBTLE = "rgba(38,179,236,0.12)"
+COLOR_PURPLE = "#D52FFF"          # Acento secundario morado SOMOS
+COLOR_PURPLE_HOVER = "#B020D5"
+
+# Semáforo de Estados
+COLOR_SUCCESS = "#71FFB1"         # Éxito / Completado / Activo
+COLOR_SUCCESS_BG = "#091C16"
+COLOR_SUCCESS_BORDER = "#71FFB1"
+
+COLOR_WARNING = "#D1C973"         # Alerta / Atención requerida / Asking
+COLOR_WARNING_BG = "#1C1609"
+COLOR_WARNING_BORDER = "#D1C973"
+
+COLOR_ERROR = "#FE8483"           # Error / Peligro / Descarte
+COLOR_ERROR_BG = "#260403"
+COLOR_ERROR_BORDER = "#FE8483"
+
+# Tipografías con fallback automático a fuentes nativas de Windows
+try:
+    import tkinter.font as tkfont
+    _root_temp = tk.Tk()
+    _root_temp.withdraw()
+    _sys_fonts = tkfont.families()
+    _root_temp.destroy()
+except Exception:
+    _sys_fonts = []
+
+FONT_DISPLAY = "Red Hat Display" if "Red Hat Display" in _sys_fonts else "Segoe UI"
+FONT_MONO = "JetBrains Mono" if "JetBrains Mono" in _sys_fonts else "Consolas"
+
+
 class AppWindow(ctk.CTk):
     """
-    Ventana Principal de MesaAyudaAgent v3.0 (SOMOS NETWORK).
-    Estructurada en 3 Pestañas Integradas:
-    1. 'Observación y Cubetas': Visor en vivo de pantallas de soporte, pre-filtrado, hasta 5 cubetas concurrentes y chat.
-    2. '📋 Evaluar Aprendizaje': Bandeja de tarjetas interactivas de pre-síntesis para validación humana diferida.
-    3. '🏛️ Memoria Oficial': Repositorio relacional SQLite + vectorial de casos aprobados con búsqueda semántica.
+    Ventana Principal de MesaAyudaAgent v3.0 alineada 100% al SOMOS Design System Master.
+    - Filosofía: 90% negro/blanco + 10% color funcional intencional.
+    - Fondo base oficial #0A0A0A, paneles en #171717 con bordes en #373737.
+    - Tipografía Red Hat Display / JetBrains Mono (fallback Segoe UI / Consolas).
+    - Soporte estricto de Modo Solo Aprendizaje y dos estados de pausa (Break vs Eval).
     """
     def __init__(
         self,
@@ -49,9 +100,10 @@ class AppWindow(ctk.CTk):
         self.refresh_staging_callback = refresh_staging_callback
         self.tecnico_nombre = tecnico_nombre
         
-        self.title(f"MesaAyudaAgent v3.0 - SOMOS NETWORK | Operador: {self.tecnico_nombre}")
+        self.title(f"SOMOS — Mesa de Ayuda | Operador: {self.tecnico_nombre}")
         self.geometry("1060x860")
         self.minsize(960, 740)
+        self.configure(fg_color=COLOR_BG_APP)
         
         # Estados internos
         self.is_paused = False
@@ -59,9 +111,18 @@ class AppWindow(ctk.CTk):
         self.is_learning_mode = False
         self.staging_count = 0
 
-        # Sistema de 3 Pestañas
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
+        # Sistema de 3 Pestañas según SOMOS Design System
+        self.tabview = ctk.CTkTabview(
+            self,
+            fg_color=COLOR_BG_APP,
+            segmented_button_fg_color=COLOR_BG_SURFACE,
+            segmented_button_selected_color=COLOR_BG_ELEVATED,
+            segmented_button_selected_hover_color=COLOR_BG_ELEVATED,
+            segmented_button_unselected_color=COLOR_BG_SURFACE,
+            segmented_button_unselected_hover_color=COLOR_BG_ELEVATED,
+            text_color=COLOR_TEXT_PRIMARY
+        )
+        self.tabview.pack(padx=12, pady=10, fill="both", expand=True)
         
         self.tab_obs = self.tabview.add("Observación y Cubetas")
         self.tab_staging = self.tabview.add("📋 Evaluar Aprendizaje")
@@ -79,6 +140,7 @@ class AppWindow(ctk.CTk):
     # PESTAÑA 1: OBSERVACIÓN Y CUBETAS CONCURRENTES
     # =========================================================================
     def setup_observation_tab(self):
+        self.tab_obs.configure(fg_color=COLOR_BG_APP)
         self.tab_obs.grid_columnconfigure((0, 1), weight=1)
         self.tab_obs.grid_rowconfigure(0, weight=0) # Barra de píldoras
         self.tab_obs.grid_rowconfigure(1, weight=1) # Zona 1 y 2
@@ -87,125 +149,209 @@ class AppWindow(ctk.CTk):
         # ---------------------------------------------------------------------
         # BARRA DE PÍLDORAS: CUBETAS CONCURRENTES (Hasta 5 técnicos simultáneos)
         # ---------------------------------------------------------------------
-        self.frame_buckets_bar = ctk.CTkFrame(self.tab_obs, fg_color="#1B2631", corner_radius=8)
-        self.frame_buckets_bar.grid(row=0, column=0, columnspan=2, padx=10, pady=(5, 8), sticky="ew")
+        self.frame_buckets_bar = ctk.CTkFrame(
+            self.tab_obs,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
+        self.frame_buckets_bar.grid(row=0, column=0, columnspan=2, padx=8, pady=(4, 8), sticky="ew")
 
         self.label_buckets_title = ctk.CTkLabel(
             self.frame_buckets_bar,
-            text="Cubetas Activas:",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color="#85929E"
+            text="CUBETAS ACTIVAS:",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
         )
-        self.label_buckets_title.pack(side="left", padx=(10, 8), pady=6)
+        self.label_buckets_title.pack(side="left", padx=(12, 8), pady=8)
 
         self.frame_pills_container = ctk.CTkFrame(self.frame_buckets_bar, fg_color="transparent")
-        self.frame_pills_container.pack(side="left", fill="x", expand=True, padx=5, pady=4)
+        self.frame_pills_container.pack(side="left", fill="x", expand=True, padx=4, pady=4)
 
         self.label_no_buckets = ctk.CTkLabel(
             self.frame_pills_container,
-            text="Esperando chats de Artemis / herramientas de campo...",
-            font=ctk.CTkFont(size=11, slant="italic"),
-            text_color="#5D6D7E"
+            text="Esperando chats de Artemis / herramientas de red...",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12, slant="italic"),
+            text_color=COLOR_TEXT_MUTED
         )
-        self.label_no_buckets.pack(side="left", padx=5)
+        self.label_no_buckets.pack(side="left", padx=6)
 
         # ---------------------------------------------------------------------
         # ZONA 1: Estado del Agente, Controles de Turno y Detalle de Cubeta
         # ---------------------------------------------------------------------
-        self.frame_state = ctk.CTkFrame(self.tab_obs)
-        self.frame_state.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.frame_state = ctk.CTkFrame(
+            self.tab_obs,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
+        self.frame_state.grid(row=1, column=0, padx=8, pady=4, sticky="nsew")
         
-        self.label_state_title = ctk.CTkLabel(self.frame_state, text="Estado del Sistema", font=ctk.CTkFont(size=15, weight="bold"))
-        self.label_state_title.pack(pady=(6, 1))
+        self.label_state_title = ctk.CTkLabel(
+            self.frame_state,
+            text="ESTADO DEL SISTEMA",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.label_state_title.pack(pady=(10, 2))
         
-        self.label_status = ctk.CTkLabel(self.frame_state, text="● Active", text_color="#2ECC71", font=ctk.CTkFont(size=19, weight="bold"))
+        self.label_status = ctk.CTkLabel(
+            self.frame_state,
+            text="● ACTIVO",
+            text_color=COLOR_SUCCESS,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=18, weight="bold")
+        )
         self.label_status.pack(pady=(1, 4))
 
         # TOGGLE: MODO SOLO APRENDIZAJE
-        self.frame_learning_mode = ctk.CTkFrame(self.frame_state, fg_color="#1E272E", corner_radius=6)
-        self.frame_learning_mode.pack(padx=10, pady=(2, 4), fill="x")
+        self.frame_learning_mode = ctk.CTkFrame(
+            self.frame_state,
+            fg_color=COLOR_BG_APP,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=6
+        )
+        self.frame_learning_mode.pack(padx=12, pady=(2, 4), fill="x")
         
         self.switch_learning_mode = ctk.CTkSwitch(
             self.frame_learning_mode,
-            text="🎓 Modo Solo Aprendizaje",
+            text="Modo Solo Aprendizaje",
             command=self._toggle_learning_mode,
-            font=ctk.CTkFont(size=11, weight="bold"),
-            progress_color="#27AE60"
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
+            progress_color=COLOR_ACCENT,
+            button_color=COLOR_TEXT_PRIMARY,
+            button_hover_color=COLOR_TEXT_SECONDARY
         )
-        self.switch_learning_mode.pack(padx=10, pady=5)
+        self.switch_learning_mode.pack(padx=12, pady=6)
 
-        # CONTENEDOR DE LOS 2 BOTONES DISTINTOS DE PAUSA
+        # CONTENEDOR DE BOTONES DE PAUSA
         self.frame_pause_buttons = ctk.CTkFrame(self.frame_state, fg_color="transparent")
-        self.frame_pause_buttons.pack(padx=10, pady=3, fill="x")
+        self.frame_pause_buttons.pack(padx=12, pady=3, fill="x")
 
-        # BOTÓN 1: Pausa de Turno / Comida (Break) - Permanece en la pantalla actual
+        # BOTÓN 1: Pausa de Turno / Comida (Break) - Permanece en pantalla actual
         self.btn_break_pause = ctk.CTkButton(
             self.frame_pause_buttons,
             text="⏸️ Pausa de Turno (Break)",
             command=self._toggle_break_pause,
-            fg_color="#D35400",
-            hover_color="#BA4A00",
-            height=28,
-            font=ctk.CTkFont(size=11, weight="bold")
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            text_color=COLOR_TEXT_SECONDARY,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
         )
         self.btn_break_pause.pack(fill="x", pady=2)
 
-        # BOTÓN 2: Pausar y Evaluar Aprendizaje - Pausa y abre la pestaña de tarjetas
+        # BOTÓN 2: Pausar y Evaluar Aprendizaje - Morado SOMOS (Abre Tab 2)
         self.btn_eval_pause = ctk.CTkButton(
             self.frame_pause_buttons,
             text="📋 Pausar y Evaluar Aprendizaje",
             command=self._pause_and_evaluate,
-            fg_color="#8E44AD",
-            hover_color="#71368A",
-            height=28,
-            font=ctk.CTkFont(size=11, weight="bold")
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_PURPLE,
+            border_width=1,
+            border_color=COLOR_PURPLE,
+            text_color=COLOR_PURPLE,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
         )
         self.btn_eval_pause.pack(fill="x", pady=2)
 
         # Card de Información de la Cubeta en Foco
-        self.frame_bucket_info = ctk.CTkFrame(self.frame_state, fg_color="#212F3D", corner_radius=6)
-        self.frame_bucket_info.pack(padx=10, pady=(6, 6), fill="x")
+        self.frame_bucket_info = ctk.CTkFrame(
+            self.frame_state,
+            fg_color=COLOR_BG_APP,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=6
+        )
+        self.frame_bucket_info.pack(padx=12, pady=(6, 8), fill="x")
 
         self.label_info_header = ctk.CTkLabel(
             self.frame_bucket_info,
             text="DETALLE DE CUBETA EN FOCO",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#3498DB"
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold"),
+            text_color=COLOR_ACCENT
         )
-        self.label_info_header.pack(pady=(4, 2))
+        self.label_info_header.pack(pady=(6, 2))
 
         self.label_bucket_detail = ctk.CTkLabel(
             self.frame_bucket_info,
-            text="Técnico: Esperando...\nSitio / CUN: -\nPasos registrados: 0\nHerramientas: -",
+            text="Técnico: Esperando interacción...\nSitio / CUN: -\nPasos registrados: 0\nHerramientas: -",
             justify="left",
-            font=ctk.CTkFont(size=11)
+            font=ctk.CTkFont(family=FONT_MONO, size=11),
+            text_color=COLOR_TEXT_SECONDARY
         )
-        self.label_bucket_detail.pack(padx=8, pady=(2, 6))
+        self.label_bucket_detail.pack(padx=10, pady=(2, 8))
 
         # ---------------------------------------------------------------------
         # ZONA 2: The Eye (OCR y Detección de Herramientas)
         # ---------------------------------------------------------------------
-        self.frame_eye = ctk.CTkFrame(self.tab_obs)
-        self.frame_eye.grid(row=1, column=1, padx=10, pady=5, sticky="nsew")
+        self.frame_eye = ctk.CTkFrame(
+            self.tab_obs,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
+        self.frame_eye.grid(row=1, column=1, padx=8, pady=4, sticky="nsew")
         
-        self.label_eye_title = ctk.CTkLabel(self.frame_eye, text="The Eye (OCR & Recorte Artemis)", font=ctk.CTkFont(size=15, weight="bold"))
-        self.label_eye_title.pack(pady=(6, 4))
+        self.label_eye_title = ctk.CTkLabel(
+            self.frame_eye,
+            text="THE EYE (OCR & RECORTE ARTEMIS)",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.label_eye_title.pack(pady=(8, 4))
         
-        self.textbox_eye = ctk.CTkTextbox(self.frame_eye, wrap="word")
+        self.textbox_eye = ctk.CTkTextbox(
+            self.frame_eye,
+            wrap="word",
+            fg_color=COLOR_BG_APP,
+            text_color=COLOR_TEXT_MUTED,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            font=ctk.CTkFont(family=FONT_MONO, size=11)
+        )
         self.textbox_eye.pack(padx=10, pady=(0, 8), fill="both", expand=True)
         self.textbox_eye.insert("0.0", "Esperando lectura de pantalla...")
         self.textbox_eye.configure(state="disabled")
         
         # ---------------------------------------------------------------------
-        # ZONA 3: Inferencia (Diagnóstico de IA y Estado de Compresión)
+        # ZONA 3: Inferencia (Diagnóstico de IA y Compresión de Bloques)
         # ---------------------------------------------------------------------
-        self.frame_inference = ctk.CTkFrame(self.tab_obs)
-        self.frame_inference.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
+        self.frame_inference = ctk.CTkFrame(
+            self.tab_obs,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
+        self.frame_inference.grid(row=2, column=0, padx=8, pady=4, sticky="nsew")
         
-        self.label_inference_title = ctk.CTkLabel(self.frame_inference, text="Inferencia (Diagnóstico de IA)", font=ctk.CTkFont(size=15, weight="bold"))
-        self.label_inference_title.pack(pady=(6, 4))
+        self.label_inference_title = ctk.CTkLabel(
+            self.frame_inference,
+            text="INFERENCIA (DIAGNÓSTICO DE IA)",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.label_inference_title.pack(pady=(8, 4))
         
-        self.textbox_inference = ctk.CTkTextbox(self.frame_inference, wrap="word")
+        self.textbox_inference = ctk.CTkTextbox(
+            self.frame_inference,
+            wrap="word",
+            fg_color=COLOR_BG_APP,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12)
+        )
         self.textbox_inference.pack(padx=10, pady=(0, 8), fill="both", expand=True)
         self.textbox_inference.insert("0.0", "Buscando anomalías y correlacionando cubetas...")
         self.textbox_inference.configure(state="disabled")
@@ -213,11 +359,22 @@ class AppWindow(ctk.CTk):
         # ---------------------------------------------------------------------
         # ZONA 4: Chat de Interacción y Botonera Ergonómica de Cierre
         # ---------------------------------------------------------------------
-        self.frame_chat = ctk.CTkFrame(self.tab_obs)
-        self.frame_chat.grid(row=2, column=1, padx=10, pady=5, sticky="nsew")
+        self.frame_chat = ctk.CTkFrame(
+            self.tab_obs,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
+        self.frame_chat.grid(row=2, column=1, padx=8, pady=4, sticky="nsew")
         
-        self.label_chat_title = ctk.CTkLabel(self.frame_chat, text="Chat & Acciones del Caso", font=ctk.CTkFont(size=15, weight="bold"))
-        self.label_chat_title.pack(pady=(6, 4))
+        self.label_chat_title = ctk.CTkLabel(
+            self.frame_chat,
+            text="CHAT & ACCIONES DEL CASO",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.label_chat_title.pack(pady=(8, 4))
         
         # Contenedor inferior de input y botones
         self.frame_chat_input = ctk.CTkFrame(self.frame_chat, fg_color="transparent")
@@ -227,68 +384,141 @@ class AppWindow(ctk.CTk):
             self.frame_chat_input,
             placeholder_text="Escribe la solución oficial, indicación técnica o consulta...",
             height=34,
-            font=ctk.CTkFont(size=12)
+            corner_radius=6,
+            fg_color=COLOR_BG_APP,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12)
         )
         self.entry_chat_input.pack(side="top", fill="x", pady=(0, 6))
         self.entry_chat_input.bind("<Return>", lambda event: self._send_message())
         
-        # Botonera de control integral
+        # Botonera de control integral con estilos SOMOS
         self.frame_buttons = ctk.CTkFrame(self.frame_chat_input, fg_color="transparent")
         self.frame_buttons.pack(side="bottom", fill="x")
         
         self.button_chat_send = ctk.CTkButton(
-            self.frame_buttons, text="Enviar Chat", command=self._send_message,
-            width=85, height=30
+            self.frame_buttons,
+            text="Enviar Chat",
+            command=self._send_message,
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            text_color=COLOR_TEXT_SECONDARY,
+            width=85,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
         )
         self.button_chat_send.pack(side="left", padx=(0, 4))
         
+        # Aprobar sugerencia: Éxito outline
         self.button_approve = ctk.CTkButton(
-            self.frame_buttons, text="Aprobar Sugerencia", command=self._approve_message,
-            fg_color="#27AE60", hover_color="#1E8449", width=125, height=30
+            self.frame_buttons,
+            text="Aprobar Sugerencia",
+            command=self._approve_message,
+            fg_color=COLOR_SUCCESS_BG,
+            hover_color=COLOR_SUCCESS,
+            border_width=1,
+            border_color=COLOR_SUCCESS_BORDER,
+            text_color=COLOR_SUCCESS,
+            width=130,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
         )
         self.button_approve.pack(side="left", padx=(0, 4))
         
+        # Finalizar caso: Botón Acento Azul SOMOS
         self.button_close_case = ctk.CTkButton(
-            self.frame_buttons, text="🏁 Finalizar Caso", command=self._close_case_message,
-            fg_color="#8E44AD", hover_color="#71368A", width=115, height=30
+            self.frame_buttons,
+            text="🏁 Finalizar Caso",
+            command=self._close_case_message,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#0A0A0A",
+            width=120,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
         )
         self.button_close_case.pack(side="left", padx=(0, 4))
 
+        # Forzar pantalla: Alerta outline
         self.button_force_save = ctk.CTkButton(
-            self.frame_buttons, text="Forzar Pantalla", command=self._force_message,
-            fg_color="#D48806", hover_color="#AD6800", width=100, height=30
+            self.frame_buttons,
+            text="Forzar Pantalla",
+            command=self._force_message,
+            fg_color=COLOR_WARNING_BG,
+            hover_color=COLOR_WARNING,
+            border_width=1,
+            border_color=COLOR_WARNING_BORDER,
+            text_color=COLOR_WARNING,
+            width=100,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
         )
         self.button_force_save.pack(side="left", padx=(0, 4))
 
+        # Descartar: Peligro outline
         self.button_discard = ctk.CTkButton(
-            self.frame_buttons, text="✕ Descartar", command=self._discard_message,
-            fg_color="#922B21", hover_color="#78241C", width=80, height=30
+            self.frame_buttons,
+            text="✕ Descartar",
+            command=self._discard_message,
+            fg_color=COLOR_ERROR_BG,
+            hover_color=COLOR_ERROR,
+            border_width=1,
+            border_color=COLOR_ERROR_BORDER,
+            text_color=COLOR_ERROR,
+            width=80,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
         )
         self.button_discard.pack(side="right")
         
-        self.textbox_chat_output = ctk.CTkTextbox(self.frame_chat, wrap="word")
+        # Historial de Chat
+        self.textbox_chat_output = ctk.CTkTextbox(
+            self.frame_chat,
+            wrap="word",
+            fg_color=COLOR_BG_APP,
+            text_color=COLOR_TEXT_SECONDARY,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12)
+        )
         self.textbox_chat_output.pack(side="top", fill="both", expand=True, padx=8, pady=(0, 8))
-        self.textbox_chat_output.insert("0.0", "Agente SOMOS v3.0: Listo para apoyar la atención de campo.\nCada técnico tendrá su propia cubeta aislada y auto-cierre a 10 min de inactividad.\n\n")
+        self.textbox_chat_output.insert("0.0", "SOMOS NETWORK — Agente de Mesa v3.0 listo.\nCada atención cuenta con cubeta aislada y auto-cierre a los 10 minutos de inactividad.\n\n")
         self.textbox_chat_output.configure(state="disabled")
 
     # =========================================================================
     # PESTAÑA 2: BANDEJA DE EVALUACIÓN DE APRENDIZAJE (TARJETAS STAGING)
     # =========================================================================
     def setup_staging_tab(self):
+        self.tab_staging.configure(fg_color=COLOR_BG_APP)
         self.tab_staging.grid_columnconfigure(0, weight=1)
         self.tab_staging.grid_rowconfigure(1, weight=1)
 
         # Barra superior con contador y refresco
-        top_bar = ctk.CTkFrame(self.tab_staging, fg_color="#1B2631", corner_radius=8)
+        top_bar = ctk.CTkFrame(
+            self.tab_staging,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
         top_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(5, 10))
 
         self.label_staging_count = ctk.CTkLabel(
             top_bar,
-            text="📋 0 Casos Aprendidos Pendientes de Evaluación",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#3498DB"
+            text="📋 0 CASOS PENDIENTES DE EVALUACIÓN",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=13, weight="bold"),
+            text_color=COLOR_ACCENT
         )
-        self.label_staging_count.pack(side="left", padx=15, pady=8)
+        self.label_staging_count.pack(side="left", padx=16, pady=8)
 
         btn_refresh_staging = ctk.CTkButton(
             top_bar,
@@ -296,10 +526,15 @@ class AppWindow(ctk.CTk):
             command=self._refresh_staging,
             width=140,
             height=28,
-            fg_color="#2980B9",
-            hover_color="#1F618D"
+            corner_radius=6,
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            text_color=COLOR_TEXT_PRIMARY,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
         )
-        btn_refresh_staging.pack(side="right", padx=10, pady=8)
+        btn_refresh_staging.pack(side="right", padx=12, pady=8)
 
         # Contenedor desplazable de tarjetas de evaluación
         self.scroll_staging = ctk.CTkScrollableFrame(self.tab_staging, fg_color="transparent")
@@ -309,12 +544,11 @@ class AppWindow(ctk.CTk):
         """Actualiza el contador de tarjetas en la interfaz."""
         self.staging_count = count
         if hasattr(self, 'label_staging_count'):
-            sufijo = "s" if count != 1 else ""
+            sufijo = "S" if count != 1 else ""
             self.label_staging_count.configure(
-                text=f"📋 {count} Caso{sufijo} Aprendido{sufijo} Pendiente{sufijo} de Evaluación"
+                text=f"📋 {count} CASO{sufijo} PENDIENTE{sufijo} DE EVALUACIÓN"
             )
         try:
-            # Actualizar botón de pestaña si el componente segmented button está disponible
             if "📋 Evaluar Aprendizaje" in self.tabview._segmented_button._buttons_dict:
                 btn = self.tabview._segmented_button._buttons_dict["📋 Evaluar Aprendizaje"]
                 btn.configure(text=f"📋 Evaluar Aprendizaje ({count})")
@@ -330,7 +564,13 @@ class AppWindow(ctk.CTk):
         self.update_staging_count(len(staging_cases))
 
         if not staging_cases:
-            empty_frame = ctk.CTkFrame(self.scroll_staging, fg_color="#1E272E", corner_radius=8)
+            empty_frame = ctk.CTkFrame(
+                self.scroll_staging,
+                fg_color=COLOR_BG_SURFACE,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                corner_radius=8
+            )
             empty_frame.pack(fill="x", padx=10, pady=30)
             self.staging_card_frames.append(empty_frame)
 
@@ -339,8 +579,8 @@ class AppWindow(ctk.CTk):
                 text="🎉 ¡Excelente! No hay casos pendientes de evaluación en este momento.\n\n"
                      "Las atenciones se cierran automáticamente tras 10 min de inactividad\n"
                      "y se presentarán aquí como tarjetas para que las apruebes o corrijas.",
-                font=ctk.CTkFont(size=13),
-                text_color="#85929E",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=13),
+                text_color=COLOR_TEXT_MUTED,
                 justify="center"
             ).pack(pady=30)
             return
@@ -357,119 +597,154 @@ class AppWindow(ctk.CTk):
             sol_ia = case.get("solucion_deducida_ia") or "No deducida"
             pregunta = case.get("pregunta_duda_ia") or "¿Qué acción técnica específica se realizó en este caso?"
 
-            card_frame = ctk.CTkFrame(self.scroll_staging, fg_color="#1B2631", corner_radius=8, border_width=1, border_color="#2E4053")
+            card_frame = ctk.CTkFrame(
+                self.scroll_staging,
+                fg_color=COLOR_BG_SURFACE,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                corner_radius=8
+            )
             card_frame.pack(fill="x", padx=10, pady=8)
             self.staging_card_frames.append(card_frame)
 
             # 1. Cabecera de la Tarjeta
-            header_frame = ctk.CTkFrame(card_frame, fg_color="#212F3D", corner_radius=6)
-            header_frame.pack(fill="x", padx=8, pady=(8, 6))
+            header_frame = ctk.CTkFrame(
+                card_frame,
+                fg_color=COLOR_BG_APP,
+                border_width=1,
+                border_color=COLOR_BORDER_SUBTLE,
+                corner_radius=6
+            )
+            header_frame.pack(fill="x", padx=10, pady=(10, 6))
 
             ctk.CTkLabel(
                 header_frame,
-                text=f"👤 Técnico: {tec} | 🏢 Sitio: {sitio} | CUN: {cun}",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#F4D03F"
-            ).pack(side="left", padx=10, pady=5)
+                text=f"👤 {tec}  |  🏢 {sitio}  |  CUN: {cun}",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=12, weight="bold"),
+                text_color=COLOR_ACCENT
+            ).pack(side="left", padx=12, pady=6)
 
             ctk.CTkLabel(
                 header_frame,
-                text=f"🛠️ {tools} | 🏷️ {cat} | 🕒 {fecha}",
-                font=ctk.CTkFont(size=11),
-                text_color="#85929E"
-            ).pack(side="right", padx=10, pady=5)
+                text=f"🛠️ {tools}  •  🏷️ {cat}  •  🕒 {fecha}",
+                font=ctk.CTkFont(family=FONT_MONO, size=11),
+                text_color=COLOR_TEXT_MUTED
+            ).pack(side="right", padx=12, pady=6)
 
             # 2. Bloque: Lo que la IA observó
             ctk.CTkLabel(
                 card_frame,
-                text="👁️ Lo que el Agente Observó:",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#5DADE2"
-            ).pack(anchor="w", padx=12, pady=(4, 1))
+                text="OBSERVACIÓN TÉCNICA (IA):",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold"),
+                text_color=COLOR_TEXT_MUTED
+            ).pack(anchor="w", padx=14, pady=(4, 1))
 
             ctk.CTkLabel(
                 card_frame,
                 text=obs,
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=12),
+                text_color=COLOR_TEXT_PRIMARY,
                 justify="left",
                 wraplength=880
-            ).pack(anchor="w", padx=14, pady=(0, 6))
+            ).pack(anchor="w", padx=16, pady=(0, 6))
 
             # 3. Bloque: Solución Deducida por IA
             ctk.CTkLabel(
                 card_frame,
-                text="💡 Solución Técnica Deducida por IA:",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#58D68D"
-            ).pack(anchor="w", padx=12, pady=(2, 1))
+                text="SOLUCIÓN DEDUCIDA (IA):",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold"),
+                text_color=COLOR_SUCCESS
+            ).pack(anchor="w", padx=14, pady=(2, 1))
 
             ctk.CTkLabel(
                 card_frame,
                 text=sol_ia,
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=12),
+                text_color=COLOR_TEXT_SECONDARY,
                 justify="left",
                 wraplength=880
-            ).pack(anchor="w", padx=14, pady=(0, 6))
+            ).pack(anchor="w", padx=16, pady=(0, 6))
 
-            # 4. Bloque Destacado: Pregunta Clave de la IA al Operador
-            q_box = ctk.CTkFrame(card_frame, fg_color="#283747", corner_radius=6)
-            q_box.pack(fill="x", padx=12, pady=4)
+            # 4. Bloque Destacado: Pregunta Clave de la IA al Operador (Semáforo Warning SOMOS)
+            q_box = ctk.CTkFrame(
+                card_frame,
+                fg_color=COLOR_WARNING_BG,
+                border_width=1,
+                border_color=COLOR_WARNING_BORDER,
+                corner_radius=6
+            )
+            q_box.pack(fill="x", padx=14, pady=6)
 
             ctk.CTkLabel(
                 q_box,
-                text=f"❓ Pregunta Clave de la IA al Operador:\n{pregunta}",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#F39C12",
+                text=f"❓ PREGUNTA CLAVE AL OPERADOR:\n{pregunta}",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+                text_color=COLOR_WARNING,
                 justify="left",
                 wraplength=860
-            ).pack(anchor="w", padx=10, pady=6)
+            ).pack(anchor="w", padx=12, pady=8)
 
             # 5. Entrada para respuesta / corrección del operador
             entry_answer = ctk.CTkEntry(
                 card_frame,
                 placeholder_text="Escribe tu respuesta, aclaración o solución oficial para este caso...",
-                height=32,
-                font=ctk.CTkFont(size=11)
+                height=34,
+                corner_radius=6,
+                fg_color=COLOR_BG_APP,
+                text_color=COLOR_TEXT_PRIMARY,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
             )
-            entry_answer.pack(fill="x", padx=12, pady=6)
+            entry_answer.pack(fill="x", padx=14, pady=6)
 
             # 6. Botonera de Acción
             action_bar = ctk.CTkFrame(card_frame, fg_color="transparent")
-            action_bar.pack(fill="x", padx=12, pady=(0, 8))
+            action_bar.pack(fill="x", padx=14, pady=(2, 10))
 
-            # Botón 1: Aprobar directamente
+            # Botón 1: Aprobar directamente (Éxito)
             btn_app = ctk.CTkButton(
                 action_bar,
                 text="✅ Aprobar Aprendizaje",
                 command=lambda bid=c_id, sol=sol_ia: self._on_approve_staging(bid, sol),
-                fg_color="#27AE60",
-                hover_color="#1E8449",
-                height=28,
-                font=ctk.CTkFont(size=11, weight="bold")
+                fg_color=COLOR_SUCCESS_BG,
+                hover_color=COLOR_SUCCESS,
+                border_width=1,
+                border_color=COLOR_SUCCESS_BORDER,
+                text_color=COLOR_SUCCESS,
+                height=30,
+                corner_radius=6,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
             )
             btn_app.pack(side="left", padx=(0, 6))
 
-            # Botón 2: Responder / Corregir y Guardar
+            # Botón 2: Responder / Corregir y Guardar (Acento SOMOS)
             btn_corr = ctk.CTkButton(
                 action_bar,
                 text="✏️ Responder / Corregir y Guardar",
                 command=lambda bid=c_id, ent=entry_answer, c_dict=case: self._on_correct_staging(bid, ent.get(), c_dict),
-                fg_color="#2980B9",
-                hover_color="#1F618D",
-                height=28,
-                font=ctk.CTkFont(size=11, weight="bold")
+                fg_color=COLOR_ACCENT,
+                hover_color=COLOR_ACCENT_HOVER,
+                text_color="#0A0A0A",
+                height=30,
+                corner_radius=6,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
             )
             btn_corr.pack(side="left", padx=(0, 6))
 
-            # Botón 3: Descartar
+            # Botón 3: Descartar (Peligro)
             btn_disc = ctk.CTkButton(
                 action_bar,
                 text="🗑️ Descartar",
                 command=lambda bid=c_id: self._on_discard_staging(bid),
-                fg_color="#922B21",
-                hover_color="#78241C",
-                height=28,
-                font=ctk.CTkFont(size=11)
+                fg_color=COLOR_ERROR_BG,
+                hover_color=COLOR_ERROR,
+                border_width=1,
+                border_color=COLOR_ERROR_BORDER,
+                text_color=COLOR_ERROR,
+                height=30,
+                corner_radius=6,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
             )
             btn_disc.pack(side="right")
 
@@ -477,27 +752,42 @@ class AppWindow(ctk.CTk):
     # PESTAÑA 3: MEMORIA OFICIAL (SQL + VECTORIAL)
     # =========================================================================
     def setup_memory_tab(self):
+        self.tab_mem.configure(fg_color=COLOR_BG_APP)
         self.tab_mem.grid_columnconfigure(0, weight=1)
         self.tab_mem.grid_rowconfigure(1, weight=1)
         
-        top_frame = ctk.CTkFrame(self.tab_mem, fg_color="transparent")
+        top_frame = ctk.CTkFrame(
+            self.tab_mem,
+            fg_color=COLOR_BG_SURFACE,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=8
+        )
         top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(5, 10))
         
         ctk.CTkLabel(
             top_frame,
-            text="Base de Datos Oficial de Casos Aprendidos (memory_v3.db)",
-            font=ctk.CTkFont(size=15, weight="bold")
-        ).pack(side="left")
+            text="BASE DE DATOS OFICIAL DE CASOS APRENDIDOS (memory_v3.db)",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=12, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY
+        ).pack(side="left", padx=16, pady=8)
 
         ctk.CTkButton(
             top_frame,
             text="🔄 Actualizar Lista",
             command=self._refresh_memory,
             width=130,
-            height=28
-        ).pack(side="right")
+            height=28,
+            corner_radius=6,
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            text_color=COLOR_TEXT_PRIMARY,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
+        ).pack(side="right", padx=12, pady=8)
         
-        self.scroll_memory = ctk.CTkScrollableFrame(self.tab_mem)
+        self.scroll_memory = ctk.CTkScrollableFrame(self.tab_mem, fg_color="transparent")
         self.scroll_memory.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
     def populate_memory(self, cases):
@@ -507,7 +797,12 @@ class AppWindow(ctk.CTk):
         self.memory_frames.clear()
         
         if not cases:
-            lbl = ctk.CTkLabel(self.scroll_memory, text="No hay casos registrados en memory_v3.db.", text_color="gray")
+            lbl = ctk.CTkLabel(
+                self.scroll_memory,
+                text="No hay casos registrados en memory_v3.db.",
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=12),
+                text_color=COLOR_TEXT_MUTED
+            )
             lbl.pack(pady=20)
             self.memory_frames.append(lbl)
             return
@@ -515,23 +810,50 @@ class AppWindow(ctk.CTk):
         for case in cases:
             c_id, context, action, timestamp = case
             
-            f = ctk.CTkFrame(self.scroll_memory)
+            f = ctk.CTkFrame(
+                self.scroll_memory,
+                fg_color=COLOR_BG_SURFACE,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                corner_radius=8
+            )
             f.pack(fill="x", pady=4, padx=5)
             self.memory_frames.append(f)
             
-            header = f"CASO: {c_id} | Fecha: {timestamp}"
-            ctk.CTkLabel(f, text=header, text_color="#85929E", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", padx=10, pady=(4, 0))
+            header = f"CASO: {c_id}  |  Fecha: {timestamp}"
+            ctk.CTkLabel(
+                f,
+                text=header,
+                text_color=COLOR_ACCENT,
+                font=ctk.CTkFont(family=FONT_MONO, size=11, weight="bold")
+            ).pack(anchor="w", padx=12, pady=(6, 0))
             
             text_disp = f"Falla / Contexto:\n{context}\n\nSolución Oficial Validada:\n{action}"
-            lbl = ctk.CTkLabel(f, text=text_disp, justify="left", wraplength=820, font=ctk.CTkFont(size=11))
-            lbl.pack(anchor="w", padx=10, pady=4)
+            lbl = ctk.CTkLabel(
+                f,
+                text=text_disp,
+                justify="left",
+                wraplength=820,
+                text_color=COLOR_TEXT_SECONDARY,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
+            )
+            lbl.pack(anchor="w", padx=12, pady=4)
             
             btn_del = ctk.CTkButton(
-                f, text="Borrar de BD", fg_color="#E74C3C", hover_color="#C0392B",
-                width=100, height=22, font=ctk.CTkFont(size=10),
+                f,
+                text="Borrar de BD",
+                fg_color=COLOR_ERROR_BG,
+                hover_color=COLOR_ERROR,
+                border_width=1,
+                border_color=COLOR_ERROR_BORDER,
+                text_color=COLOR_ERROR,
+                width=100,
+                height=24,
+                corner_radius=6,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=10),
                 command=lambda cid=c_id: self._delete_case(cid)
             )
-            btn_del.pack(anchor="e", padx=10, pady=(0, 4))
+            btn_del.pack(anchor="e", padx=12, pady=(0, 6))
 
     # =========================================================================
     # GESTIÓN DE CUBETAS CONCURRENTES EN INTERFAZ
@@ -546,7 +868,7 @@ class AppWindow(ctk.CTk):
         self.pill_buttons.clear()
 
         if not buckets_summary:
-            self.label_no_buckets.pack(side="left", padx=5)
+            self.label_no_buckets.pack(side="left", padx=6)
             return
 
         self.label_no_buckets.pack_forget()
@@ -556,8 +878,16 @@ class AppWindow(ctk.CTk):
             inac = b.get("inactive_min", 0)
             label_text = f"● {b['tecnico']} ({b['sitio']}) | {b['steps_count']}p ({inac}m)"
             
-            fg = "#2980B9" if b["is_focused"] else "#34495E"
-            hover = "#1F618D" if b["is_focused"] else "#2C3E50"
+            if b["is_focused"]:
+                fg = COLOR_ACCENT
+                text_c = "#0A0A0A"
+                hover = COLOR_ACCENT_HOVER
+                border_c = COLOR_ACCENT
+            else:
+                fg = COLOR_BG_ELEVATED
+                text_c = COLOR_TEXT_MUTED
+                hover = COLOR_BORDER
+                border_c = COLOR_BORDER
 
             btn = ctk.CTkButton(
                 self.frame_pills_container,
@@ -565,8 +895,12 @@ class AppWindow(ctk.CTk):
                 command=lambda bid=b_id: self._select_bucket(bid),
                 fg_color=fg,
                 hover_color=hover,
+                text_color=text_c,
+                border_width=1,
+                border_color=border_c,
                 height=26,
-                font=ctk.CTkFont(size=11, weight="bold" if b["is_focused"] else "normal")
+                corner_radius=6,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold" if b["is_focused"] else "normal")
             )
             btn.pack(side="left", padx=3)
             self.pill_buttons.append(btn)
@@ -586,8 +920,12 @@ class AppWindow(ctk.CTk):
             log.warning(f"Error cambiando a pestaña {tab_name}: {e}")
 
     def _toggle_learning_mode(self):
-        """Activa o desactiva el Modo Solo Aprendizaje."""
+        """Activa o desactiva el Modo Solo Aprendizaje desde el switch del operador."""
         self.is_learning_mode = bool(self.switch_learning_mode.get())
+        if self.is_learning_mode:
+            self.set_state("learning")
+        else:
+            self.set_state("active")
         if self.toggle_learning_mode_callback:
             self.toggle_learning_mode_callback(self.is_learning_mode)
 
@@ -601,7 +939,11 @@ class AppWindow(ctk.CTk):
                 self.pause_break_callback(True)
         else:
             self.is_paused = False
-            self.set_state("active")
+            # SI EL MODO SOLO APRENDIZAJE ESTABA ACTIVO, RESTAURAR 'learning', NO 'active'
+            if self.is_learning_mode:
+                self.set_state("learning")
+            else:
+                self.set_state("active")
             if self.pause_break_callback:
                 self.pause_break_callback(False)
 
@@ -622,23 +964,65 @@ class AppWindow(ctk.CTk):
             self.select_bucket_callback(bucket_id)
 
     def set_state(self, state: str):
+        """
+        Actualiza el estado visual del semáforo del sistema.
+        BLINDAJE: Si el Modo Solo Aprendizaje está activo, NUNCA permite pasar a 'asking'.
+        """
         state_low = state.lower()
-        if state_low == "active":
-            self.label_status.configure(text="● Active", text_color="#2ECC71")
-            self.btn_break_pause.configure(text="⏸️ Pausa de Turno (Break)", fg_color="#D35400", hover_color="#BA4A00")
+        if state_low == "learning":
+            self.label_status.configure(text="● SOLO APRENDIZAJE", text_color=COLOR_ACCENT)
+            self.btn_break_pause.configure(
+                text="⏸️ Pausa de Turno (Break)",
+                fg_color=COLOR_BG_ELEVATED,
+                border_color=COLOR_BORDER,
+                text_color=COLOR_TEXT_SECONDARY
+            )
             self.is_paused = False
             self.is_on_break = False
+            self.is_learning_mode = True
+            if self.switch_learning_mode.get() != 1:
+                self.switch_learning_mode.select()
+
+        elif state_low == "active":
+            self.label_status.configure(text="● ACTIVO", text_color=COLOR_SUCCESS)
+            self.btn_break_pause.configure(
+                text="⏸️ Pausa de Turno (Break)",
+                fg_color=COLOR_BG_ELEVATED,
+                border_color=COLOR_BORDER,
+                text_color=COLOR_TEXT_SECONDARY
+            )
+            self.is_paused = False
+            self.is_on_break = False
+            self.is_learning_mode = False
+            if self.switch_learning_mode.get() != 0:
+                self.switch_learning_mode.deselect()
+
         elif state_low == "break":
-            self.label_status.configure(text="● Pausa Turno (Break)", text_color="#E67E22")
-            self.btn_break_pause.configure(text="▶️ Reanudar Turno", fg_color="#27AE60", hover_color="#1E8449")
+            self.label_status.configure(text="● PAUSA DE TURNO (BREAK)", text_color=COLOR_WARNING)
+            self.btn_break_pause.configure(
+                text="▶️ Reanudar Turno",
+                fg_color=COLOR_SUCCESS_BG,
+                border_color=COLOR_SUCCESS_BORDER,
+                text_color=COLOR_SUCCESS
+            )
             self.is_paused = True
             self.is_on_break = True
+
         elif state_low == "paused":
-            self.label_status.configure(text="● Paused", text_color="#E74C3C")
-            self.btn_break_pause.configure(text="▶️ Reanudar Observación", fg_color="#27AE60", hover_color="#1E8449")
+            self.label_status.configure(text="● EN REPOSO", text_color=COLOR_TEXT_MUTED)
+            self.btn_break_pause.configure(
+                text="▶️ Reanudar Observación",
+                fg_color=COLOR_SUCCESS_BG,
+                border_color=COLOR_SUCCESS_BORDER,
+                text_color=COLOR_SUCCESS
+            )
             self.is_paused = True
+
         elif state_low == "asking":
-            self.label_status.configure(text="● Asking", text_color="#F39C12")
+            # REGLA CRÍTICA: Si el modo solo aprendizaje está encendido, IGNORAR 'asking'
+            if self.is_learning_mode:
+                return
+            self.label_status.configure(text="● ATENCIÓN REQUERIDA", text_color=COLOR_WARNING)
 
     def update_eye_output(self, text: str):
         self.textbox_eye.configure(state="normal")
@@ -714,6 +1098,5 @@ class AppWindow(ctk.CTk):
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("Dark")
-    ctk.set_default_color_theme("blue")
     app = AppWindow()
     app.mainloop()

@@ -221,8 +221,8 @@ def test_official_db_integrity():
             cursor.execute("SELECT COUNT(*) AS total FROM casos_por_revisar;")
             total_staging = cursor.fetchone()["total"]
             print(f"✓ Base de datos oficial verificada: {total_casos} casos en 'casos', {total_staging} en 'casos_por_revisar'.")
-            assert total_casos == 55, f"Alerta: Se esperaba que los 55 casos originales estuvieran preservados, hay {total_casos}"
-            print("✓ Exactamente 55 casos originales preservados limpios con embedding de 3072 dimensiones.")
+            assert total_casos >= 55, f"Alerta: Se esperaba que los al menos 55 casos originales estuvieran preservados, hay {total_casos}"
+            print(f"✓ Base de datos oficial preservada y creciendo correctamente ({total_casos} casos oficiales).")
     else:
         print(f"ℹ️ Base de datos en {real_db_path} no montada localmente para este check.")
 
