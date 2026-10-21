@@ -30,26 +30,47 @@ class ScreenReader:
             import ctypes
             from ctypes import wintypes
             
-            # 1. Obtener las coordenadas exactas de la ventana activa en primer plano
+            # 1. Obtener las coordenadas exactas de la ventana activa y su monitor correspondiente
             hwnd = ctypes.windll.user32.GetForegroundWindow()
             rect = wintypes.RECT()
             ctypes.windll.user32.GetWindowRect(hwnd, ctypes.pointer(rect))
-            
-            left, top = rect.left, rect.top
-            width, height = rect.right - rect.left, rect.bottom - rect.top
+
+            # Identificar el monitor físico donde reside la ventana activa (soporte multimonitor)
+            MONITOR_DEFAULTTONEAREST = 2
+            hmon = ctypes.windll.user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD),
+                    ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD)
+                ]
+
+            mi = MONITORINFO()
+            mi.cbSize = ctypes.sizeof(MONITORINFO)
+            ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.pointer(mi))
+
+            # Clamping estricto: evita coordenadas negativas en ventanas maximizadas (-8, -8 en Windows)
+            # y desbordamientos fuera de los límites del monitor activo
+            clamped_left = max(mi.rcMonitor.left, rect.left)
+            clamped_top = max(mi.rcMonitor.top, rect.top)
+            clamped_right = min(mi.rcMonitor.right, rect.right)
+            clamped_bottom = min(mi.rcMonitor.bottom, rect.bottom)
+
+            width = max(100, clamped_right - clamped_left)
+            height = max(100, clamped_bottom - clamped_top)
             
             with mss.mss() as sct:
-                # Si las dimensiones son válidas, intentamos capturar la ventana activa
-                if width > 0 and height > 0:
-                    monitor = {"top": top, "left": left, "width": width, "height": height}
-                    try:
-                        sct_img = sct.grab(monitor)
-                    except Exception as grab_err:
-                        # Respaldo a pantalla completa principal si las coordenadas son especiales
-                        log.debug(f"Ajustando captura a pantalla completa por coordenadas especiales: {grab_err}")
-                        sct_img = sct.grab(sct.monitors[1])
-                else:
-                    sct_img = sct.grab(sct.monitors[1])
+                monitor_dict = {"top": clamped_top, "left": clamped_left, "width": width, "height": height}
+                try:
+                    sct_img = sct.grab(monitor_dict)
+                except Exception as grab_err:
+                    # Respaldo seguro: capturar los límites del monitor activo completo
+                    m_width = max(640, mi.rcMonitor.right - mi.rcMonitor.left)
+                    m_height = max(480, mi.rcMonitor.bottom - mi.rcMonitor.top)
+                    fallback_dict = {"top": mi.rcMonitor.top, "left": mi.rcMonitor.left, "width": m_width, "height": m_height}
+                    sct_img = sct.grab(fallback_dict)
                 
                 # Convertir a imagen PIL RGB
                 img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")

@@ -430,7 +430,9 @@ class HybridVectorDB:
                             data = json.load(f)
 
                         solucion = data.get("action", "").strip()
-                        if not solucion or len(solucion) < 3:
+                        v_ctx = data.get("visual_context", "")
+                        valido, _ = self.validate_gatekeeper(solucion, v_ctx)
+                        if not valido:
                             continue
 
                         # Deducir categoría y herramienta

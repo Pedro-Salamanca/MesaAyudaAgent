@@ -51,12 +51,12 @@ CATEGORIAS_OFICIALES = [
 ARCHIVO_SITIOS_IGNORADOS = "sitios_ignorados.txt"
 
 # Aplicaciones y herramientas de soporte que SIEMPRE se permite observar
-# Incluye soporte Capa 1, Capa 2 y Capa 3 (Core & Routing)
+# Incluye soporte Capa 1, Capa 2 y Capa 3 (Core & Routing) y hojas de cálculo técnicas
 APPS_PERMITIDAS = [
     "winbox", "mobaxterm", "mobaxtreme", "putty", "powershell", 
     "cmd.exe", "símbolo del sistema", "terminal", "zabbix", 
     "somos", "artemis", "mikrotik", "grafana", "openwisp", "vilo", "selene",
-    "bgp", "ospf", "core", "traceroute", "mtr"
+    "bgp", "ospf", "core", "traceroute", "mtr", "sheets", "google sheets", "spreadsheet"
 ]
 
 # Navegadores web permitidos para plataformas internas
@@ -66,12 +66,10 @@ NAVEGADORES_PERMITIDOS = ["chrome", "edge", "firefox", "brave", "opera"]
 PALABRAS_PROHIBIDAS_DEFECTO = [
     "whatsapp", "telegram", "slack", "mesaayudaagent", "agentemesaayuda",
     "mesa de ayuda", "evaluar aprendizaje", "observación y cubetas",
-    "hojas de cálculo", "google docs", "discord", "messenger",
+    "discord", "messenger",
     "facebook", "youtube", "twitter", "instagram", "netflix",
-    "spotify", "tiktok", "gmail", "outlook", "correo", "mail",
-    "fotos", "google sheets", "google drive",
-    "login", "iniciar sesión", "iniciar sesion", "sign in", "signin",
-    "autenticación", "autenticacion", "accounts.google"
+    "spotify", "tiktok", "login", "iniciar sesión", "iniciar sesion",
+    "sign in", "signin", "autenticación", "autenticacion", "accounts.google"
 ]
 
 # Términos en el título de la ventana que indican un formulario de autenticación/login

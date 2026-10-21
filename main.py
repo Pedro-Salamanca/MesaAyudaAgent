@@ -623,10 +623,18 @@ class MesaAyudaAgentApp:
                     raw_text = self.vision.capture_and_read(active_title)
                     current_img = self.vision.last_image
 
-                    # PASO 2.1: Pre-filtro de cambio de píxeles
-                    has_pixel_change = self.pre_filter.has_significant_pixel_change(current_img, threshold=0.02)
+                    # PASO 2.1: Pre-filtro de cambio de píxeles y detección de cambio de ventana
+                    window_changed = (active_title != getattr(self, "_last_seen_title", ""))
+                    self._last_seen_title = active_title
+
+                    if window_changed:
+                        # Si el operador cambió de ventana, forzar evaluación inmediata
+                        has_pixel_change = True
+                    else:
+                        has_pixel_change = self.pre_filter.has_significant_pixel_change(current_img, threshold=0.02)
+
                     if not has_pixel_change and not raw_text.startswith("ERROR_OCR:"):
-                        # Pantalla estática: ahorro del 100% de llamadas a IA
+                        # Pantalla estática en la misma ventana: ahorro del 100% de llamadas a IA
                         pass
                     else:
                         # PASO 3: Blindaje de Seguridad contra Pantallas de Login
@@ -736,6 +744,13 @@ class MesaAyudaAgentApp:
                                                 self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
                                             else:
                                                 self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
+                        else:
+                            eye_text = (
+                                f"👁️ VENTANA: {active_title}\n"
+                                f"ESTADO: ⏸️ En reposo (Contenido técnico mínimo insuficiente para análisis).\n"
+                                f"DETALLE: Esperando contenido visible o selección de chat activo."
+                            )
+                            self.app.after(0, self.app.update_eye_output, eye_text)
 
             # =================================================================
             # TEMPORIZADORES DE AUTO-CIERRE E INACTIVIDAD
