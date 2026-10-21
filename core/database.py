@@ -8,12 +8,26 @@ from typing import Optional, List, Dict, Tuple
 from core.config import MEMORY_DIR, CASES_DIR, IMAGES_DIR, MAX_CASOS_UI_MEMORIA
 from core.logger import log
 
-# Frases basura o de cortesía que el Gatekeeper debe rechazar para evitar contaminar la base vectorial
+# Frases basura o de cortesía breves
 FRASES_BASURA_GATEKEEPER = [
     "no aplica", "n/a", "na", "omitir", "ok", "vale", "listo", "gracias",
     "muchas gracias", "enterado", "entendido", "bueno", "bien", "de acuerdo",
     "nada", "ninguna", "ninguno", "test", "prueba", "probando", "ignorar",
     "cerrar", "siguiente", "ninguna solucion", "ninguna solución"
+]
+
+# Frases genéricas no accionables (relleno sin resolución técnica comprobada)
+FRASES_GENERICAS_NO_ACCIONABLES = [
+    "realizar seguimiento al cierre",
+    "verificar el estado del servicio y dar continuidad",
+    "continuar monitoreo del servicio",
+    "monitorear el estado del servicio",
+    "sin datos concluyentes",
+    "realizar validacion tecnica del servicio segun reporte",
+    "atención de caso de soporte general en sitio",
+    "visualización de cubetas activas",
+    "registro de cubeta inicial",
+    "sin reporte de falla técnica específica"
 ]
 
 class HybridVectorDB:
@@ -147,10 +161,10 @@ class HybridVectorDB:
             log.error(f"Error inicializando tablas en {self.db_path}: {e}")
 
     @staticmethod
-    def validate_gatekeeper(solucion: str) -> Tuple[bool, str]:
+    def validate_gatekeeper(solucion: str, problema: str = "") -> Tuple[bool, str]:
         """
-        Filtro de calidad estricto: evita registrar ruido, saludos o respuestas triviales
-        como soluciones técnicas definitivas en la memoria del agente.
+        Filtro de calidad estricto: evita registrar ruido, saludos, respuestas triviales
+        o frases genéricas sin acción técnica real en la memoria oficial del agente.
         """
         if not solucion or not solucion.strip():
             return False, "La solución está vacía."
@@ -158,17 +172,25 @@ class HybridVectorDB:
         texto_limpio = solucion.strip().lower()
 
         # Validación 1: Longitud mínima sustancial
-        if len(texto_limpio) < 8:
+        if len(texto_limpio) < 12:
             return False, f"La solución es demasiado corta ({len(texto_limpio)} caracteres). Debe ser una acción técnica clara."
 
-        # Validación 2: Coincidencia con frases de cortesía o vacías
-        if texto_limpio in FRASES_BASURA_GATEKEEPER:
-            return False, f"La solución '{solucion}' es una frase de cortesía o descarte, no un procedimiento técnico."
-
+        # Validación 2: Coincidencia con frases de cortesía breves
         for basura in FRASES_BASURA_GATEKEEPER:
             if texto_limpio == basura or texto_limpio.startswith(basura + " ") or texto_limpio.endswith(" " + basura):
-                if len(texto_limpio) < 25:
-                    return False, f"La solución contiene texto no procesable ('{basura}')."
+                return False, f"La solución contiene texto no procesable ('{basura}')."
+
+        # Validación 3: Rechazo incondicional de frases de relleno genéricas no resolutivas
+        for generico in FRASES_GENERICAS_NO_ACCIONABLES:
+            if generico in texto_limpio:
+                return False, f"La solución es un texto genérico de relleno ('{generico}') sin acción técnica concreta."
+
+        # Validación 4: Rechazo de capturas autorreferenciales del agente
+        texto_completo = f"{problema} {solucion}".lower()
+        terminos_agente = ["cubetas activas", "modo solo aprendizaje", "evaluar aprendizaje", "the eye", "ocr & recorte", "mesa de ayuda"]
+        for tag in terminos_agente:
+            if tag in texto_completo:
+                return False, f"Caso descartado: Detectada captura autorreferencial del propio agente ('{tag}')."
 
         return True, ""
 
@@ -178,7 +200,8 @@ class HybridVectorDB:
         Aplica Gatekeeper sobre la solución oficial y serializa el embedding.
         """
         solucion = case_data.get("solucion_oficial") or case_data.get("action") or ""
-        valido, motivo = self.validate_gatekeeper(solucion)
+        problema = case_data.get("problema_detectado") or ""
+        valido, motivo = self.validate_gatekeeper(solucion, problema)
         if not valido:
             log.warning(f"Gatekeeper rechazó el caso {case_data.get('id_caso')}: {motivo}")
             return False
@@ -608,8 +631,8 @@ class HybridVectorDB:
                     return False
                 r_dict = dict(row)
 
-            # Validar con Gatekeeper
-            valido, motivo = self.validate_gatekeeper(solucion_final)
+            # Validar con Gatekeeper (solución + contexto del problema)
+            valido, motivo = self.validate_gatekeeper(solucion_final, r_dict.get("problema_observado", ""))
             if not valido:
                 log.warning(f"Aprobación rechazada por Gatekeeper para [{id_cubeta}]: {motivo}")
                 return False

@@ -98,16 +98,21 @@ class PreFilterEngine:
     def is_window_allowed(self, title: str) -> tuple[bool, str]:
         """
         Verifica si la ventana activa está en la lista de aplicaciones y navegadores permitidos
-        o si coincide con sitios prohibidos.
+        o si coincide con sitios prohibidos o con la propia ventana del agente.
         """
         if not title:
             return False, "Título de ventana vacío"
 
         t_lower = title.lower()
 
-        # No analizar la propia ventana del agente
-        if "mesaayudaagent" in t_lower:
-            return False, "Ventana propia del agente"
+        # 1. BLINDAJE ABSOLUTO: Nunca analizar la propia ventana del agente ni sus submódulos
+        AGENT_WINDOW_KEYWORDS = [
+            "mesa de ayuda", "mesaayudaagent", "agentemesaayuda", 
+            "evaluar aprendizaje", "observación y cubetas", "memoria oficial",
+            "agente mesa", "the eye", "cubetas activas"
+        ]
+        if any(kw in t_lower for kw in AGENT_WINDOW_KEYWORDS):
+            return False, "Ventana propia del agente (Mesa de Ayuda)"
 
         # Leer lista de sitios ignorados/prohibidos
         forbidden = PALABRAS_PROHIBIDAS_DEFECTO
@@ -194,8 +199,14 @@ class PreFilterEngine:
         m_tec = re.search(r"(?:Chat\s+con:?|Ts:?|T[ée]cnico:?)[^\S\r\n]+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:[^\S\r\n]+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){1,3})", full_content, re.IGNORECASE)
         if m_tec:
             tec_candidato = m_tec.group(1).strip()
-            # Validar que no sea una palabra común de la interfaz
-            if tec_candidato.lower() not in ["conversaciones", "pendientes", "activos", "en linea", "desconocido", "somos network"]:
+            # Limpiar colas de OCR o palabras de interfaz pegadas (como 'Linfo', 'Info', 'Warning', 'Estado')
+            tec_candidato = re.sub(r"\b(?:linfo|info|warning|error|estado|cubeta|chaty|ar|cpe|soporte)\b", "", tec_candidato, flags=re.I).strip()
+            # Validar que no sea una palabra común de la interfaz o el propio operador
+            palabras_ignorar = [
+                "conversaciones", "pendientes", "activos", "en linea", "desconocido",
+                "somos network", "mesa de ayuda", "operador", "sistema", "carlos gémez"
+            ]
+            if len(tec_candidato) > 2 and tec_candidato.lower() not in palabras_ignorar:
                 anchors["tecnico_campo"] = tec_candidato.title()
 
         # 2. CUN o ID de Servicio

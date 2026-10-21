@@ -68,10 +68,13 @@ def test_database_staging():
     assert len(saved_steps) == 2, f"Se esperaban 2 pasos en pasos_cubeta, hay {len(saved_steps)}"
     print(f"✓ Pasos recuperados de pasos_cubeta: {len(saved_steps)}")
 
-    # 3. Gatekeeper test en aprobación
+    # 3. Gatekeeper test en aprobación: rechazo de basura y respuestas genéricas de relleno
     rechazado = db.approve_staging_case("cubeta_test_001", "ok")
     assert not rechazado, "Gatekeeper debió rechazar 'ok'"
-    print("✓ Gatekeeper rechazó exitosamente solución basura 'ok'")
+    
+    rechazado_generico = db.approve_staging_case("cubeta_test_001", "Realizar seguimiento al cierre del caso y verificar el estado del servicio en el nodo correspondiente.")
+    assert not rechazado_generico, "Gatekeeper debió rechazar solución genérica no procesable"
+    print("✓ Gatekeeper rechazó exitosamente soluciones genéricas y basura ('ok', 'realizar seguimiento...')")
 
     # 4. Aprobación válida y PURGA automática
     solucion_valida = "Se ajustó la cola simple de 50M a 100M en MikroTik y se verificó tráfico en WinBox."

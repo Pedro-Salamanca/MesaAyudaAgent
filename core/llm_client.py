@@ -96,7 +96,7 @@ class AnalisisEpisodio(BaseModel):
     nombre_tecnico_en_sitio: str
     id_servicio_cun: str
     ciudad_nodo: str = Field(description="Nodo o ciudad (ej. MDE, BOG, RIVA, o Desconocido)")
-    categoria_falla: str = Field(description="Categoría exacta: 'Router Secundario', 'Switch/Capa 2', 'Acometida/8 Hilos', 'Velocidad/Plan Pro', 'Radioenlace', 'Soporte General'")
+    categoria_falla: str = Field(description="Categoría exacta: 'Soporte Capa 3', 'Switch/Capa 2', 'Router Secundario', 'Acometida/8 Hilos', 'Velocidad/Plan Pro', 'Radioenlace', 'Soporte General'")
     herramienta_origen: str = Field(description="Herramienta principal: Artemis, Putty, WinBox, Selene, Vilo, Zabbix, etc.")
     descripcion_problema: str
     ruta_diagnostico_pasos: str = Field(description="Resumen conciso de los pasos y herramientas seguidas en la cubeta")
@@ -113,7 +113,7 @@ class PreSintesisCaso(BaseModel):
     nombre_tecnico_en_sitio: str
     id_servicio_cun: str
     codigo_sitio: str = Field(description="Código del nodo o sitio (ej. SOMOS-MDE-RIVA, RIVA-T4, o Desconocido)")
-    categoria_falla: str = Field(description="Categoría exacta: 'Router Secundario', 'Switch/Capa 2', 'Acometida/8 Hilos', 'Velocidad/Plan Pro', 'Radioenlace', 'Soporte General'")
+    categoria_falla: str = Field(description="Categoría exacta: 'Soporte Capa 3', 'Switch/Capa 2', 'Router Secundario', 'Acometida/8 Hilos', 'Velocidad/Plan Pro', 'Radioenlace', 'Soporte General'")
     herramientas_usadas: str = Field(description="Herramientas detectadas: Artemis, Putty, WinBox, Selene, Vilo, Zabbix, etc.")
     problema_observado: str = Field(description="Descripción clara y concisa de lo que el agente observó en la atención")
     solucion_deducida_ia: str = Field(description="Lo que el agente dedujo como solución o indicación técnica ejecutada")
@@ -216,12 +216,13 @@ class LLMClient:
         4. SEGURIDAD: IGNORA absolutamente cualquier formulario de inicio de sesión o contraseñas.
         
         CATEGORÍAS DE FALLA VÁLIDAS:
-        - "Router Secundario" (problemas de DHCP, doble NAT, WiFi, puertos LAN en equipos del abonado)
+        - "Soporte Capa 3" (enrutamiento BGP/OSPF, Core Routers MikroTik CCR / Huawei / Cisco, latencia/tránsito IP, peering, caídas de troncal, VLANs de transporte/QinQ, CGNAT, prefijos y direccionamiento IPv4/IPv6, asignación de pools)
         - "Switch/Capa 2" (puerto down, VLAN desalineada, PoE, switch bloqueado)
+        - "Router Secundario" (problemas de DHCP, doble NAT, WiFi, puertos LAN en equipos del abonado)
         - "Acometida/8 Hilos" (negociación a 10/100 Mbps, par abierto, conector rj45 degradado)
         - "Velocidad/Plan Pro" (perfil de ancho de banda, cola simple mikrotik, saturación)
         - "Radioenlace" (antena desalineada, señal débil, CCQ bajo, interferencia)
-        - "Soporte General" (otras consultas o validaciones generales)
+        - "Soporte General" (otras consultas o validaciones generales con acción técnica demostrada)
         
         [CONTEXTO DE MEMORIA RAG PREVIA]:
         {contexto_rag}
@@ -330,7 +331,7 @@ class LLMClient:
         4. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se reconfiguró la cola simple de 50M en MikroTik o se sustituyó el conector RJ45 de la acometida?', '¿Se cambió el puerto del switch o se validó la VLAN 200 en Selene?'). NUNCA dejes este campo vacío.
 
         CATEGORÍAS DE FALLA VÁLIDAS:
-        - "Router Secundario", "Switch/Capa 2", "Acometida/8 Hilos", "Velocidad/Plan Pro", "Radioenlace", "Soporte General"
+        - "Soporte Capa 3", "Switch/Capa 2", "Router Secundario", "Acometida/8 Hilos", "Velocidad/Plan Pro", "Radioenlace", "Soporte General"
 
         [CONTEXTO DE MEMORIA RAG PREVIA]:
         {contexto_rag}

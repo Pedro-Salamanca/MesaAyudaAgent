@@ -33,15 +33,30 @@ TESSERACT_PATHS = [
 TESSERACT_INSTALLER_URL = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe"
 
 # =====================================================================
+# CATEGORÍAS OFICIALES DE SOPORTE TÉCNICO SOMOS NETWORK
+# =====================================================================
+CATEGORIAS_OFICIALES = [
+    "Soporte Capa 3",        # Enrutamiento BGP/OSPF, Core Routers, Tránsito IP, CGNAT, Prefijos IPv4/IPv6, Enlaces Troncales
+    "Switch/Capa 2",         # Puerto Down, VLANs de cliente, Switches de acceso, Bucles STP, PoE
+    "Router Secundario",     # DHCP, Doble NAT, Configuración WiFi, Puertos LAN equipos de cliente
+    "Acometida/8 Hilos",     # Negociación a 10/100, Cable UTP degradado, Conector RJ45, Par abierto
+    "Velocidad/Plan Pro",    # Perfil ancho de banda, Simple Queues MikroTik, Saturación de canal
+    "Radioenlace",           # Antena desalineada, Pérdida de paquetes inalámbrica, CCQ bajo, Ruido RF
+    "Soporte General"        # Validaciones de servicio y consultas técnicas con acción verificada
+]
+
+# =====================================================================
 # REGLAS DE PRIVACIDAD, FILTRADO Y APLICACIONES PERMITIDAS
 # =====================================================================
 ARCHIVO_SITIOS_IGNORADOS = "sitios_ignorados.txt"
 
 # Aplicaciones y herramientas de soporte que SIEMPRE se permite observar
+# Incluye soporte Capa 1, Capa 2 y Capa 3 (Core & Routing)
 APPS_PERMITIDAS = [
     "winbox", "mobaxterm", "mobaxtreme", "putty", "powershell", 
     "cmd.exe", "símbolo del sistema", "terminal", "zabbix", 
-    "somos", "artemis", "mikrotik", "grafana", "openwisp", "vilo", "selene"
+    "somos", "artemis", "mikrotik", "grafana", "openwisp", "vilo", "selene",
+    "bgp", "ospf", "core", "traceroute", "mtr"
 ]
 
 # Navegadores web permitidos para plataformas internas
@@ -49,7 +64,8 @@ NAVEGADORES_PERMITIDOS = ["chrome", "edge", "firefox", "brave", "opera"]
 
 # Lista de reserva en caso de que sitios_ignorados.txt sea eliminado
 PALABRAS_PROHIBIDAS_DEFECTO = [
-    "whatsapp", "telegram", "slack", "mesaayudaagent", 
+    "whatsapp", "telegram", "slack", "mesaayudaagent", "agentemesaayuda",
+    "mesa de ayuda", "evaluar aprendizaje", "observación y cubetas",
     "hojas de cálculo", "google docs", "discord", "messenger",
     "facebook", "youtube", "twitter", "instagram", "netflix",
     "spotify", "tiktok", "gmail", "outlook", "correo", "mail",

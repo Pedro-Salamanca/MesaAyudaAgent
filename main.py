@@ -612,8 +612,9 @@ class MesaAyudaAgentApp:
                 # PASO 1: Validación básica de ventana permitida
                 permitida, motivo_perm = self.pre_filter.is_window_allowed(active_title)
                 if not permitida:
-                    if "mesaayudaagent" in active_title.lower():
-                        pass
+                    if "ventana propia del agente" in motivo_perm.lower():
+                        self.app.after(0, self.app.update_eye_output, "🛡️ REPOSO: Ventana del Agente en primer plano.\nMonitoreo visual activo esperando interacción en Artemis o herramientas de red.")
+                        self.app.after(0, self.app.update_inference_output, "Reposo: Agente en primer plano. Esperando ventana operativa.")
                     else:
                         self.app.after(0, self.app.update_eye_output, f"🙈 Ventana excluida:\n[{active_title}]\nMotivo: {motivo_perm}")
                         self.app.after(0, self.app.update_inference_output, f"Reposo: {motivo_perm}")
@@ -652,7 +653,14 @@ class MesaAyudaAgentApp:
 
                             if not has_anchor:
                                 # POLÍTICA CERO ADIVINANZAS: Si no hay ancla fuerte, descartar captura
-                                self.app.after(0, self.app.update_eye_output, f"[Captura descartada: Sin ancla unívoca]\n\n{raw_text[:300]}...")
+                                eye_text = (
+                                    f"👁️ VENTANA OBSERVADA: {active_title}\n"
+                                    f"ESTADO: ⏸️ Captura en espera (Sin ancla técnica unívoca)\n"
+                                    f"MOTIVO: {motivo_ancla}\n"
+                                    f"──────────────────────────────────────────────────\n"
+                                    f"Esperando chat de soporte en Artemis o sesión de red (CUN / Nodo / IP / MAC)."
+                                )
+                                self.app.after(0, self.app.update_eye_output, eye_text)
                                 self.app.after(0, self.app.update_inference_output, f"Omitiendo captura sin ancla clara ({motivo_ancla}) para evitar mezclas.")
                             else:
                                 # PASO 6: Enrutamiento Concurrente Anti-Mezcla
@@ -671,37 +679,61 @@ class MesaAyudaAgentApp:
                                             "steps": [s.to_dict() for s in target_bucket.steps]
                                         })
 
+                                    pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
+                                    cun_str = target_bucket.id_servicio_cun or "Sin CUN"
+                                    sitio_str = target_bucket.codigo_sitio or "Sin Sitio"
+                                    herramientas_str = ", ".join(target_bucket.herramientas_usadas) if target_bucket.herramientas_usadas else "General"
+
                                     if is_dup:
-                                        self.app.after(0, self.app.update_eye_output, f"[Texto sin cambios | Cubeta: {target_bucket.tecnico_campo}]\n\n{raw_text[:300]}...")
+                                        eye_text = (
+                                            f"👁️ VENTANA: {active_title}\n"
+                                            f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
+                                            f"ESTADO: ⏸️ Pantalla sin cambios significativos ({pasos_info})\n"
+                                            f"HERRAMIENTAS: {herramientas_str}"
+                                        )
                                     else:
-                                        self.app.after(0, self.app.update_eye_output, raw_text)
+                                        # Extraer líneas significativas limpias del chat o consola
+                                        lineas = [l.strip() for l in raw_text.split('\n') if len(l.strip()) > 8 and not any(w in l.lower() for w in ["conversaciones", "pendientes", "escribe un mensaje", "modo solo aprendizaje", "evaluar aprendizaje"])]
+                                        extracto_limpio = "\n".join(lineas[-4:]) if lineas else "Atención técnica en curso."
 
-                                        # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
-                                        if self.is_learning_mode:
-                                            self.is_asking = False
-                                            self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
-                                        elif not self.is_asking:
-                                            self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
-                                            analisis = self.llm.analizar_texto_pantalla(raw_text)
+                                        eye_text = (
+                                            f"👁️ VENTANA: {active_title}\n"
+                                            f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
+                                            f"ESTADO: ✅ Paso registrado ({pasos_info})\n"
+                                            f"HERRAMIENTAS: {herramientas_str}\n"
+                                            f"──────────────────────────────────────────────────\n"
+                                            f"ÚLTIMA ACCIÓN OBSERVADA:\n"
+                                            f"{extracto_limpio}"
+                                        )
 
-                                            if analisis and analisis.es_problema_tecnico_real:
-                                                sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
-                                                if sig != self.last_problem_signature:
-                                                    self.last_problem_signature = sig
-                                                    self.is_asking = True
-                                                    self.current_visual_context = analisis.descripcion_problema
-                                                    self.current_agent_suggestion = analisis.accion_sugerida
+                                    self.app.after(0, self.app.update_eye_output, eye_text)
 
-                                                    inf_text = (
-                                                        f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
-                                                        f"Problema: {analisis.descripcion_problema}\n"
-                                                        f"Sugerencia: {analisis.accion_sugerida}\n"
-                                                        f"Confianza: {analisis.nivel_confianza}\n\n"
-                                                        f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
-                                                    )
-                                                    self.app.after(0, self.app.set_state, "asking")
-                                                    self.app.after(0, self.app.update_inference_output, inf_text)
-                                                    self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
+                                    # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
+                                    if self.is_learning_mode:
+                                        self.is_asking = False
+                                        self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
+                                    elif not self.is_asking:
+                                        self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
+                                        analisis = self.llm.analizar_texto_pantalla(raw_text)
+
+                                        if analisis and analisis.es_problema_tecnico_real:
+                                            sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
+                                            if sig != self.last_problem_signature:
+                                                self.last_problem_signature = sig
+                                                self.is_asking = True
+                                                self.current_visual_context = analisis.descripcion_problema
+                                                self.current_agent_suggestion = analisis.accion_sugerida
+
+                                                inf_text = (
+                                                    f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
+                                                    f"Problema: {analisis.descripcion_problema}\n"
+                                                    f"Sugerencia: {analisis.accion_sugerida}\n"
+                                                    f"Confianza: {analisis.nivel_confianza}\n\n"
+                                                    f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
+                                                )
+                                                self.app.after(0, self.app.set_state, "asking")
+                                                self.app.after(0, self.app.update_inference_output, inf_text)
+                                                self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
                                             else:
                                                 self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
 
