@@ -115,18 +115,29 @@ class AppWindow(ctk.CTk):
         self.tabview = ctk.CTkTabview(
             self,
             fg_color=COLOR_BG_APP,
-            segmented_button_fg_color=COLOR_BG_SURFACE,
+            segmented_button_fg_color=COLOR_BG_APP,
             segmented_button_selected_color=COLOR_BG_ELEVATED,
-            segmented_button_selected_hover_color=COLOR_BG_ELEVATED,
+            segmented_button_selected_hover_color="#2A2A2A",
             segmented_button_unselected_color=COLOR_BG_SURFACE,
             segmented_button_unselected_hover_color=COLOR_BG_ELEVATED,
             text_color=COLOR_TEXT_PRIMARY
         )
-        self.tabview.pack(padx=12, pady=10, fill="both", expand=True)
+        self.tabview.pack(padx=12, pady=(6, 10), fill="both", expand=True)
         
-        self.tab_obs = self.tabview.add("Observación y Cubetas")
+        self.tab_obs = self.tabview.add("👁️ Observación y Cubetas")
         self.tab_staging = self.tabview.add("📋 Evaluar Aprendizaje")
         self.tab_mem = self.tabview.add("🏛️ Memoria Oficial")
+        
+        # Separación elegante de pestañas: píldoras espaciadas con márgenes, bordes e iconos descriptivos
+        for btn in self.tabview._segmented_button._buttons_dict.values():
+            btn.grid_configure(padx=8, pady=3)
+            btn.configure(
+                corner_radius=8,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                height=34,
+                font=ctk.CTkFont(family=FONT_DISPLAY, size=12, weight="bold")
+            )
         
         self.pill_buttons = []
         self.staging_card_frames = []
@@ -248,15 +259,17 @@ class AppWindow(ctk.CTk):
         self.btn_break_pause.pack(fill="x", pady=2)
 
         # BOTÓN 2: Pausar y Evaluar Aprendizaje - Morado SOMOS (Abre Tab 2)
+        # Contraste optimizado: fondo oscuro con sutil matiz (#201026), borde morado (#D52FFF)
+        # y texto blanco (#FFFFFF) legible con fondo resaltado (#451257) al posar el cursor.
         self.btn_eval_pause = ctk.CTkButton(
             self.frame_pause_buttons,
             text="📋 Pausar y Evaluar Aprendizaje",
             command=self._pause_and_evaluate,
-            fg_color=COLOR_BG_ELEVATED,
-            hover_color=COLOR_PURPLE,
+            fg_color="#201026",
+            hover_color="#451257",
             border_width=1,
             border_color=COLOR_PURPLE,
-            text_color=COLOR_PURPLE,
+            text_color=COLOR_TEXT_PRIMARY,
             height=30,
             corner_radius=6,
             font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
@@ -551,7 +564,10 @@ class AppWindow(ctk.CTk):
         try:
             if "📋 Evaluar Aprendizaje" in self.tabview._segmented_button._buttons_dict:
                 btn = self.tabview._segmented_button._buttons_dict["📋 Evaluar Aprendizaje"]
-                btn.configure(text=f"📋 Evaluar Aprendizaje ({count})")
+                if count > 0:
+                    btn.configure(text=f"📋 Evaluar Aprendizaje ({count})")
+                else:
+                    btn.configure(text="📋 Evaluar Aprendizaje")
         except Exception:
             pass
 
