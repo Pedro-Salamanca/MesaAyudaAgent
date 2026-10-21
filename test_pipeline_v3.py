@@ -129,12 +129,21 @@ def test_bucket_manager_and_anti_mixing():
     assert len(bm.active_buckets) == 1
     print(f"✓ Cubeta 1 creada: {b1.bucket_id} ({b1.tecnico_campo})")
 
-    # 2. Captura sin ancla -> Política CERO ADIVINANZAS: Debe retornar (None, False, False)
+    # 2. Captura en herramienta de red (WinBox, PuTTY) sin repetir ancla -> DEBE atribuirse a la cubeta en curso
+    bm.set_focused_bucket(b1.bucket_id)
+    anchors_winbox = {"herramienta_origen": "WinBox"}
+    b_winbox, _, _ = bm.route_capture("Winbox v6.49 - MikroTik", "Simple Queue 50M", anchors_winbox)
+    assert b_winbox is not None, "WinBox debió atribuirse a la cubeta activa de Carlos Gómez"
+    assert b_winbox.bucket_id == b1.bucket_id
+    assert len(b1.steps) == 2, "La cubeta de Carlos Gómez debe tener 2 pasos ahora"
+    print("✓ Captura de herramienta diagnóstica (WinBox) atribuida con éxito al caso en curso")
+
+    # 2.1 Captura en app ajena / irrelevante (Explorador de Archivos) -> DEBE ser descartada
     anchors_vacio = {"herramienta_origen": "General"}
     b_none, _, _ = bm.route_capture("Explorador de Archivos", "Texto irrelevante sin anclas", anchors_vacio)
-    assert b_none is None, "Captura sin ancla debió ser descartada (None)"
-    assert len(b1.steps) == 1, "Cubeta 1 no debió recibir capturas ajenas"
-    print("✓ Captura sin ancla descartada sin ensuciar la cubeta activa")
+    assert b_none is None, "Captura sin ancla y en app no técnica debió ser descartada (None)"
+    assert len(b1.steps) == 2, "Cubeta 1 no debió recibir capturas de apps ajenas"
+    print("✓ Captura en app ajena (Explorador de Archivos) descartada sin ensuciar la cubeta activa")
 
     # 3. Enrutar captura 2: Técnico DIFERENTE (María Pérez) -> Debe crear NUEVA cubeta, NO mezclar
     anchors_2 = {
@@ -151,8 +160,8 @@ def test_bucket_manager_and_anti_mixing():
     print(f"✓ Cubeta 2 creada independientemente: {b2.bucket_id} ({b2.tecnico_campo}). CERO mezclas!")
 
     # 4. Probar acumulación de 8 pasos y compresión en bloque
-    for i in range(7): # Sumando al 1 que ya tiene -> 8 pasos
-        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+2}")
+    for i in range(6): # Sumando a los 2 que ya tiene -> 8 pasos
+        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+3}")
     assert len(b1.steps) == 8, f"Se esperaban 8 pasos, hay {len(b1.steps)}"
     assert needs_comp == True, "Al llegar a 8 pasos debe activar needs_compression=True"
 

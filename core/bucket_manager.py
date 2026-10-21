@@ -100,6 +100,14 @@ class CaseBucket:
         self.steps.clear()
         log.info(f"Bloque #{block_num} comprimido para cubeta [{self.bucket_id}]. Pasos crudos liberados.")
 
+    @property
+    def herramientas_usadas(self) -> List[str]:
+        tools = []
+        for s in self.steps:
+            if s.tool_name and s.tool_name != "General" and s.tool_name not in tools:
+                tools.append(s.tool_name)
+        return tools
+
     def matches_anchors(self, anchors: dict) -> float:
         """
         Calcula el puntaje de afinidad con Detección de Conflicto Duro:
@@ -297,9 +305,34 @@ class BucketManager:
             if has_new_identity:
                 target_bucket = self._create_new_bucket(anchors)
             else:
-                # 4. REGLA DE ORO: Si no hay ancla ni coincidencia, DESCARTAR CAPTURA (no forzar en cubeta activa)
-                log.info(f"Captura en [{window_title}] descartada por carecer de ancla unívoca. Evitando mezclas.")
-                return None, False, False
+                # 4. ATRIBUCIÓN CONTINUA AL CASO EN CURSO (Herramientas técnicas y scroll de chat):
+                # Si no trae ancla nueva pero hay una cubeta activa en foco (o una única cubeta activa):
+                focused_b = self.get_focused_bucket()
+                
+                # Lista estricta de herramientas técnicas y diagnósticas reconocidas
+                HERRAMIENTAS_TECNICAS = [
+                    "winbox", "putty", "mobaxterm", "moba", "zabbix", "selene", 
+                    "viloliving", "openwisp", "terminal", "powershell", "cmd",
+                    "artemis", "somos", "mikrotik", "sheets", "spreadsheet"
+                ]
+                w_low = window_title.lower()
+                t_name = (anchors.get("herramienta_origen") or "").lower()
+                es_herramienta_tecnica = any(h in w_low or h in t_name for h in HERRAMIENTAS_TECNICAS)
+
+                if focused_b and focused_b.status == "active" and es_herramienta_tecnica:
+                    # Verificar que NO haya conflicto duro con otro técnico distinto
+                    in_tec = (anchors.get("tecnico_campo") or "").strip()
+                    if in_tec and focused_b.tecnico_campo != "Técnico Desconocido":
+                        if in_tec.lower() not in focused_b.tecnico_campo.lower() and focused_b.tecnico_campo.lower() not in in_tec.lower():
+                            log.info(f"Conflicto de técnico detectado ('{in_tec}' vs '{focused_b.tecnico_campo}'). Descartando para no mezclar.")
+                            return None, False, False
+
+                    # Atribuir paso diagnóstico a la cubeta en curso
+                    target_bucket = focused_b
+                    target_bucket.update_anchors(anchors)
+                else:
+                    log.info(f"Captura en [{window_title}] descartada por no haber cubeta activa o no ser herramienta técnica.")
+                    return None, False, False
 
         # Agregar paso a la cubeta objetivo
         tool_name = anchors.get("herramienta_origen", "General")

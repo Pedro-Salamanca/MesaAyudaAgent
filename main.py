@@ -655,37 +655,32 @@ class MesaAyudaAgentApp:
                             self.last_valid_image = current_img
                             self.last_valid_title = active_title
 
-                            # PASO 5: Extracción de Anclas y Verificación Estricta
+                            # PASO 5: Extracción de Anclas
                             anchors = self.pre_filter.extract_anchors(raw_text, active_title)
-                            has_anchor, motivo_ancla = self.pre_filter.has_strong_anchor(anchors)
 
-                            if not has_anchor:
-                                # POLÍTICA CERO ADIVINANZAS: Si no hay ancla fuerte, descartar captura
+                            # PASO 6: Enrutamiento Inteligente Concurrente (Nueva cubeta o caso en curso)
+                            target_bucket, es_nuevo_paso, needs_block_summary = self.bucket_manager.route_capture(
+                                active_title, raw_text, anchors
+                            )
+
+                            if target_bucket is None:
                                 eye_text = (
                                     f"👁️ VENTANA OBSERVADA: {active_title}\n"
-                                    f"ESTADO: ⏸️ Captura en espera (Sin ancla técnica unívoca)\n"
-                                    f"MOTIVO: {motivo_ancla}\n"
-                                    f"──────────────────────────────────────────────────\n"
-                                    f"Esperando chat de soporte en Artemis o sesión de red (CUN / Nodo / IP / MAC)."
+                                    f"ESTADO: ⏸️ En espera de atención técnica\n"
+                                    f"DETALLE: Abre un chat con un técnico en Artemis o selecciona una cubeta activa en la barra superior para registrar diagnósticos en Winbox/PuTTY/MobaXterm."
                                 )
                                 self.app.after(0, self.app.update_eye_output, eye_text)
-                                self.app.after(0, self.app.update_inference_output, f"Omitiendo captura sin ancla clara ({motivo_ancla}) para evitar mezclas.")
+                                self.app.after(0, self.app.update_inference_output, "Esperando inicio de chat de soporte o selección de cubeta en curso.")
                             else:
-                                # PASO 6: Enrutamiento Concurrente Anti-Mezcla
-                                target_bucket, es_nuevo_paso, needs_block_summary = self.bucket_manager.route_capture(
-                                    active_title, raw_text, anchors
-                                )
+                                self._refresh_pills_ui()
 
-                                if target_bucket is not None:
-                                    self._refresh_pills_ui()
-
-                                    # Si se acumularon 8 pasos, programar resumen de bloque en segundo plano
-                                    if needs_block_summary:
-                                        self.bg_tasks_queue.put({
-                                            "type": "compress_block",
-                                            "bucket": target_bucket,
-                                            "steps": [s.to_dict() for s in target_bucket.steps]
-                                        })
+                                # Si se acumularon 8 pasos, programar resumen de bloque en segundo plano
+                                if needs_block_summary:
+                                    self.bg_tasks_queue.put({
+                                        "type": "compress_block",
+                                        "bucket": target_bucket,
+                                        "steps": [s.to_dict() for s in target_bucket.steps]
+                                    })
 
                                     pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
                                     cun_str = target_bucket.id_servicio_cun or "Sin CUN"
