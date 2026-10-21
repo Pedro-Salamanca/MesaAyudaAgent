@@ -104,6 +104,23 @@ class AnalisisEpisodio(BaseModel):
     nivel_confianza: str
 
 
+class PreSintesisCaso(BaseModel):
+    """
+    Esquema estructurado para la pre-síntesis de cubetas que pasan a revisión diferida (Staging Cards).
+    Genera tarjeta de evaluación para el operador con una pregunta OBLIGATORIA sobre dudas técnicas.
+    """
+    es_problema_tecnico_real: bool
+    nombre_tecnico_en_sitio: str
+    id_servicio_cun: str
+    codigo_sitio: str = Field(description="Código del nodo o sitio (ej. SOMOS-MDE-RIVA, RIVA-T4, o Desconocido)")
+    categoria_falla: str = Field(description="Categoría exacta: 'Router Secundario', 'Switch/Capa 2', 'Acometida/8 Hilos', 'Velocidad/Plan Pro', 'Radioenlace', 'Soporte General'")
+    herramientas_usadas: str = Field(description="Herramientas detectadas: Artemis, Putty, WinBox, Selene, Vilo, Zabbix, etc.")
+    problema_observado: str = Field(description="Descripción clara y concisa de lo que el agente observó en la atención")
+    solucion_deducida_ia: str = Field(description="Lo que el agente dedujo como solución o indicación técnica ejecutada")
+    pregunta_duda_ia: str = Field(description="Pregunta OBLIGATORIA y concreta dirigida al operador de mesa para confirmar o aclarar la acción técnica clave ejecutada en el caso (ej. '¿Se modificó la cola simple en MikroTik o se reinició el CPE desde Zabbix?').")
+    nivel_confianza: str
+
+
 class LLMClient:
     """
     Cliente de integración con Google Gemini y Embeddings de SOMOS NETWORK v3.0.
@@ -244,6 +261,175 @@ class LLMClient:
                     return None
 
         return None
+
+    def resumir_bloque_pasos(self, steps: List[dict]) -> str:
+        """
+        Resume un bloque de 8 pasos acumulados en una cubeta en 1 o 2 frases técnicas.
+        Permite liberar memoria RAM y mantener cubetas ultraligeras.
+        """
+        pasos_str = []
+        for s in steps:
+            p_num = s.get("step_number", "")
+            tool = s.get("tool_name", "General")
+            title = s.get("window_title", "")
+            ocr = (s.get("ocr_text") or "")[:250].strip()
+            pasos_str.append(f"Paso {p_num} [{tool} | {title}]: {ocr}")
+
+        prompt = f"""
+        Eres el Agente Senior de Mesa de Ayuda de SOMOS NETWORK.
+        Sintetiza la siguiente secuencia de 8 pasos técnicos consecutivos en 1 o 2 oraciones técnicas concisas y precisas.
+        Enfócate en qué se consultó, qué anomalía o parámetro se vio en las herramientas (Artemis, WinBox, Putty, Zabbix, etc.) y qué acción se tomó.
+
+        REGLAS:
+        - NUNCA menciones la palabra ONT (usa router, switch, antena o CPE).
+        - NUNCA menciones la palabra ticket (usa chat, caso o novedad).
+        - NUNCA incluyas números de teléfono ni datos personales (PII).
+        - Sé ultra breve y técnico (máximo 45 palabras).
+
+        [PASOS REGISTRADOS]:
+        {chr(10).join(pasos_str)}
+        """
+        for intento in range(max(1, len(self.pool.keys))):
+            client = self.pool.get_client()
+            if not client:
+                return "Bloque de pasos técnicos registrado en herramientas SOMOS."
+            try:
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2
+                    )
+                )
+                return response.text.strip() if response and response.text else "Pasos diagnósticos registrados."
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "429" in err_msg or "resource_exhausted" in err_msg or "503" in err_msg:
+                    self.pool.mark_rate_limited(60)
+                    time.sleep(0.5)
+                    continue
+                else:
+                    log.warning(f"Error resumiendo bloque de pasos: {e}")
+                    return "Bloque de diagnósticos intermedios en herramientas de red."
+        return "Bloque de diagnósticos técnicos registrado."
+
+    def sintetizar_para_revision(self, timeline_text: str, contexto_rag: str = "") -> Optional[PreSintesisCaso]:
+        """
+        Sintetiza una cubeta que se cierra por inactividad o break para generar una tarjeta de evaluación.
+        Formula una pregunta obligatoria concreta para el operador humano sobre las acciones del caso.
+        """
+        prompt = f"""
+        Eres el Agente Senior de Mesa de Ayuda de SOMOS NETWORK.
+        Un caso de atención técnica ha culminado o entrado en reposo. Sintetiza la trazabilidad del caso
+        para generar una tarjeta de evaluación estructurada para el operador de mesa.
+
+        REGLAS ESTRICTAS DE SOMOS NETWORK (CERO EXCEPCIONES):
+        1. INFRAESTRUCTURA: En SOMOS NETWORK NO existen ONT's. Todo equipo de cliente es router, switch, antena o CPE. NUNCA menciones la palabra ONT.
+        2. TERMINOLOGÍA: NUNCA utilices la palabra "ticket" o "tickets". En SOMOS NETWORK son "chats", "casos" o "novedades".
+        3. PRIVACIDAD (PII): NUNCA extraigas ni registres números de teléfono ni de contacto personal. Identifica los servicios ÚNICAMENTE por CUN o ID.
+        4. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se reconfiguró la cola simple de 50M en MikroTik o se sustituyó el conector RJ45 de la acometida?', '¿Se cambió el puerto del switch o se validó la VLAN 200 en Selene?'). NUNCA dejes este campo vacío.
+
+        CATEGORÍAS DE FALLA VÁLIDAS:
+        - "Router Secundario", "Switch/Capa 2", "Acometida/8 Hilos", "Velocidad/Plan Pro", "Radioenlace", "Soporte General"
+
+        [CONTEXTO DE MEMORIA RAG PREVIA]:
+        {contexto_rag}
+
+        [HISTORIAL CRONOLÓGICO DE LA CUBETA]:
+        \"\"\"
+        {timeline_text}
+        \"\"\"
+
+        Genera la salida estructurada con el esquema PreSintesisCaso.
+        """
+        for intento in range(max(1, len(self.pool.keys))):
+            client = self.pool.get_client()
+            if not client:
+                return None
+            try:
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=PreSintesisCaso,
+                        temperature=TEMPERATURE_ANALISIS
+                    )
+                )
+                return response.parsed
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "429" in err_msg or "resource_exhausted" in err_msg or "503" in err_msg:
+                    self.pool.mark_rate_limited(60)
+                    time.sleep(0.5)
+                    continue
+                else:
+                    log.error(f"Error al sintetizar caso para revisión: {e}")
+                    return None
+        return None
+
+    def integrar_correccion_humana(self, pre_sintesis: dict, correccion_humana: str) -> str:
+        """
+        Fusiona la pre-síntesis de la IA con la respuesta/corrección provista por el operador de mesa.
+        Retorna la solución oficial técnica pulida respetando los lineamientos de SOMOS NETWORK.
+        """
+        problema = pre_sintesis.get("problema_observado", "")
+        solucion_ia = pre_sintesis.get("solucion_deducida_ia", "")
+        pregunta = pre_sintesis.get("pregunta_duda_ia", "")
+
+        prompt = f"""
+        Eres el Agente Senior de Mesa de Ayuda de SOMOS NETWORK.
+        Un operador humano ha respondido a la pregunta y/o corregido la solución deducida de un caso técnico.
+        Tu tarea es redactar la SOLUCIÓN TÉCNICA OFICIAL definitiva para la base de datos de conocimiento.
+
+        [PROBLEMA OBSERVADO POR IA]:
+        {problema}
+
+        [SOLUCIÓN DEDUCIDA INICIALMENTE POR IA]:
+        {solucion_ia}
+
+        [PREGUNTA FORMULADA AL OPERADOR]:
+        {pregunta}
+
+        [RESPUESTA / CORRECCIÓN DEL OPERADOR HUMANO]:
+        \"{correccion_humana}\"
+
+        REGLAS ESTRICTAS DE REDACCIÓN:
+        1. La solución técnica debe ser concisa, profesional y directa (1 a 3 líneas).
+        2. Debe reflejar prioritariamente la indicación del operador humano complementada con la precisión técnica del caso.
+        3. NUNCA incluyas la palabra ONT (usa router, switch, antena o CPE).
+        4. NUNCA uses la palabra ticket (usa chat, caso o novedad).
+        5. NUNCA incluyas números de teléfono ni datos de contacto personal.
+        6. Retorna ÚNICAMENTE el texto final de la solución, sin saludos, introducciones ni despedidas.
+        """
+        for intento in range(max(1, len(self.pool.keys))):
+            client = self.pool.get_client()
+            if not client:
+                return correccion_humana.strip()
+            try:
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2
+                    )
+                )
+                if response and response.text:
+                    texto = response.text.strip()
+                    if (texto.startswith('"') and texto.endswith('"')) or (texto.startswith("'") and texto.endswith("'")):
+                        texto = texto[1:-1].strip()
+                    return texto
+                return correccion_humana.strip()
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "429" in err_msg or "resource_exhausted" in err_msg or "503" in err_msg:
+                    self.pool.mark_rate_limited(60)
+                    time.sleep(0.5)
+                    continue
+                else:
+                    log.error(f"Error integrando corrección humana: {e}")
+                    return correccion_humana.strip()
+        return correccion_humana.strip()
 
     def analizar_texto_pantalla(self, texto_ocr: str) -> Optional[AnalisisEscenario]:
         """

@@ -1,7 +1,10 @@
 import sys
 import os
+import json
 import threading
 import time
+from datetime import datetime
+import queue
 import urllib.request
 import subprocess
 import ssl
@@ -70,28 +73,37 @@ class MesaAyudaAgentApp:
     """
     Controlador Principal de MesaAyudaAgent v3.0 (SOMOS NETWORK).
     Orquesta:
-    1. Pre-Filtrado Anti-Spam (0 tokens en pantallas idénticas o logins).
-    2. Cubetas Concurrentes (hasta 5 técnicos simultáneos en Artemis, Putty, WinBox).
-    3. Pool de Claves de API con failover automático.
-    4. Base de Datos Híbrida SQL + Vectorial (memory_v3.db).
-    5. Cierre explícito e independiente de casos.
+    1. Pre-Filtrado Anti-Spam y Recorte de Artemis (24% lateral izquierdo y 8% pestañas).
+    2. Aislamiento Estricto de Cubetas (Zero-Guessing: nunca mezclar técnicos).
+    3. Resúmenes de Bloque de 8 pasos (Rolling Block Summary) para memoria ultraligera.
+    4. Auto-cierre de cubetas a los 10 minutos de inactividad hacia la bandeja de tarjetas.
+    5. Modo Solo Aprendizaje con transición automática a los 30 minutos de inactividad global.
+    6. Dos botones de pausa: Break de turno (conserva pantalla) vs Pausar y Evaluar Aprendizaje.
+    7. Bandeja interactiva de tarjetas efímeras con aprobación, corrección asistida y descarte.
+    8. Base de datos oficial SQLite WAL + Embeddings (gemini-embedding-001 de 3072 dimensiones).
     """
     def __init__(self):
         self.tecnico_nombre = TECNICO_NOMBRE_DEFAULT
         self.last_problem_signature = ""
 
-        # Inicializar Componentes de Inteligencia y Datos
+        # Componentes de Inteligencia, Visión y Memoria
         self.pre_filter = PreFilterEngine()
-        self.bucket_manager = BucketManager(max_concurrent=5, ttl_minutes=15)
+        self.bucket_manager = BucketManager(max_concurrent=5, ttl_bucket_minutes=10, global_inactivity_minutes=30)
         self.brain = AgentBrain()
         self.llm = LLMClient()
         self.search_engine = MemorySearchEngine(db=self.brain.db)
         self.vision = ScreenReader()
 
-        # Inicializar Interfaz Gráfica con Callbacks de Control
+        # Cola de tareas en segundo plano para compresión y síntesis sin bloquear la interfaz
+        self.bg_tasks_queue = queue.Queue()
+
+        # Interfaz Gráfica con Callbacks Completos
         self.app = AppWindow(
             chat_callback=self.on_chat_message,
             pause_callback=self.on_toggle_pause,
+            pause_break_callback=self.on_toggle_break_pause,
+            pause_eval_callback=self.on_pause_and_evaluate,
+            toggle_learning_mode_callback=self.on_toggle_learning_mode,
             delete_callback=self.on_delete_case,
             refresh_callback=self.refresh_memory_ui,
             force_callback=self.on_force_save,
@@ -99,27 +111,41 @@ class MesaAyudaAgentApp:
             close_case_callback=self.on_close_case,
             discard_bucket_callback=self.on_discard_bucket,
             select_bucket_callback=self.on_select_bucket,
+            approve_staging_callback=self.on_approve_staging,
+            correct_staging_callback=self.on_correct_staging,
+            discard_staging_callback=self.on_discard_staging,
+            refresh_staging_callback=self.refresh_staging_ui,
             tecnico_nombre=self.tecnico_nombre
         )
 
-        # Estados Internos
+        # Variables de Control de Flujo
         self.is_paused = False
         self.is_asking = False
+        self.is_learning_mode = False
         self.current_visual_context = ""
         self.current_agent_suggestion = ""
         self.last_valid_ocr = "Esperando lectura inicial..."
         self.last_valid_image = None
         self.last_valid_title = ""
 
-        # Actualizar estado inicial de la UI
+        # Inicialización de estado y tarjetas en la UI
         self._refresh_pills_ui()
+        self.refresh_staging_ui()
         self.refresh_memory_ui()
 
-        # Iniciar ciclo de visión en segundo plano
+        # Hilo de procesamiento en segundo plano (worker)
+        self.worker_thread = threading.Thread(target=self._background_worker_loop, daemon=True)
+        self.worker_thread.start()
+
+        # Hilo del ciclo visual
         self.vision_thread = threading.Thread(target=self.vision_loop, daemon=True)
         self.vision_thread.start()
+
         log.info("Agente MesaAyudaAgent v3.0 inicializado y en ejecución.")
 
+    # =========================================================================
+    # REFRESCADO DE COMPONENTES UI
+    # =========================================================================
     def _refresh_pills_ui(self):
         """Refresca las pestañas de cubetas activas y la tarjeta de detalle en la UI."""
         summary = self.bucket_manager.get_active_buckets_summary()
@@ -131,37 +157,162 @@ class MesaAyudaAgentApp:
             info_txt = (
                 f"Técnico: {focused.tecnico_campo}\n"
                 f"Sitio: {focused.codigo_sitio or 'N/A'} | CUN: {focused.id_servicio_cun or 'N/A'}\n"
-                f"Pasos registrados: {len(focused.steps)}\n"
-                f"Herramientas: {', '.join(tools)}\n"
-                f"Sugerencias aprobadas: {len(focused.approved_suggestions)}"
+                f"Pasos acumulados: {focused.total_steps_lifetime} ({len(focused.steps)} en bloque actual)\n"
+                f"Bloques comprimidos: {len(focused.partial_summaries)}\n"
+                f"Herramientas: {', '.join(tools)}"
             )
         else:
-            info_txt = "Técnico: Ninguno activo\nSitio / CUN: -\nPasos registrados: 0\nHerramientas: -"
+            info_txt = "Técnico: Esperando interacción en Artemis/herramientas...\nSitio / CUN: -\nPasos registrados: 0\nHerramientas: -"
 
         self.app.after(0, self.app.update_bucket_info, info_txt)
 
+    def refresh_staging_ui(self):
+        """Carga y renderiza las tarjetas de evaluación pendientes desde SQLite."""
+        try:
+            staging_cases = self.brain.get_pending_staging_cases()
+            self.app.after(0, self.app.populate_staging_cards, staging_cases)
+        except Exception as e:
+            log.error(f"Error refrescando tarjetas de staging: {e}")
+
     def refresh_memory_ui(self):
-        """Recarga la lista de casos guardados desde la base de datos SQL."""
-        cases = self.brain.get_all_cases()
-        self.app.populate_memory(cases)
+        """Recarga la lista de casos guardados en la memoria oficial de SQLite."""
+        try:
+            cases = self.brain.get_all_cases()
+            self.app.after(0, self.app.populate_memory, cases)
+        except Exception as e:
+            log.error(f"Error refrescando memoria oficial: {e}")
 
-    def on_delete_case(self, case_id: str):
-        """Elimina un caso específico de la memoria tras solicitud del usuario."""
-        self.brain.delete_case(case_id)
-        self.refresh_memory_ui()
-
+    # =========================================================================
+    # CONTROL DE PAUSAS Y MODOS DE TRABAJO
+    # =========================================================================
     def on_toggle_pause(self):
-        """Pausa o reanuda la observación visual y las consultas a la IA."""
+        """Toggle genérico de pausa."""
         self.is_paused = not self.is_paused
         if self.is_paused:
-            self.is_asking = False
             self.app.set_state("paused")
-            self.app.update_inference_output("Agente pausado por el operador. No se captura pantalla ni se consume API.")
-            log.info("Agente puesto en pausa.")
         else:
             self.app.set_state("active")
-            self.app.update_inference_output("Agente reanudado. Observando y asociando cubetas...")
-            log.info("Agente reanudado a estado activo.")
+
+    def on_toggle_break_pause(self, is_break: bool):
+        """
+        BOTÓN 1: Pausa de Turno / Comida (Break).
+        - Permanece en la pantalla actual de observación.
+        - Detiene capturas de pantalla y consultas a IA.
+        - En segundo plano, las cubetas inactivas se sintetizan y cierran sin interrumpir al operador.
+        """
+        self.is_paused = is_break
+        self.is_asking = False
+        if is_break:
+            self.app.set_state("break")
+            self.app.after(0, self.app.update_inference_output, "☕ Pausa de turno (Break) activa. Captura visual detenida.\nLas cubetas pendientes se sintetizarán en segundo plano.")
+            self.app.after(0, self.app.append_chat, "Agente", "☕ Turno en pausa (Break/Comida). No capturaré pantallas hasta que pulses '▶️ Reanudar Turno'.")
+            log.info("Pausa de turno (Break) activada.")
+        else:
+            self.app.set_state("active")
+            self.app.after(0, self.app.update_inference_output, "▶️ Turno reanudado. Observando y asociando cubetas activas...")
+            self.app.after(0, self.app.append_chat, "Agente", "▶️ Turno reanudado. Retomando observación técnica en Artemis y herramientas.")
+            log.info("Turno reanudado tras el break.")
+
+    def on_pause_and_evaluate(self):
+        """
+        BOTÓN 2: Pausar y Evaluar Aprendizaje.
+        - Pausa la observación visual.
+        - Abre inmediatamente la pestaña de tarjetas '📋 Evaluar Aprendizaje'.
+        """
+        self.is_paused = True
+        self.is_asking = False
+        self.app.set_state("paused")
+        self.refresh_staging_ui()
+        self.app.after(0, self.app.update_inference_output, "📋 Observación en pausa. Mostrando tarjetas de evaluación de aprendizaje...")
+        self.app.after(0, self.app.append_chat, "Agente", "📋 Modo evaluación abierto. Revisa las tarjetas de los casos aprendidos.")
+        log.info("Modo evaluación de aprendizaje activado por el operador.")
+
+    def on_toggle_learning_mode(self, enabled: bool):
+        """
+        Activa o desactiva el 'Modo Solo Aprendizaje'.
+        En este modo, el agente no lanza preguntas inmediatas; simplemente captura, aísla por cubeta,
+        comprime bloques cada 8 pasos y auto-cierra tras 10 min de inactividad para su posterior evaluación.
+        """
+        self.is_learning_mode = enabled
+        if enabled:
+            self.app.after(0, self.app.append_chat, "Agente", "🎓 Modo Solo Aprendizaje ACTIVADO.\nObservaré en segundo plano sin interrumpirte. Toda atención se guardará como tarjeta para que la evalúes cuando desees.")
+            self.app.after(0, self.app.update_inference_output, "🎓 Modo Solo Aprendizaje activo. Capturando y comprimiendo atenciones en segundo plano...")
+            log.info("Modo Solo Aprendizaje activado.")
+        else:
+            self.app.after(0, self.app.append_chat, "Agente", "🎓 Modo Solo Aprendizaje DESACTIVADO. Asistencia interactiva en vivo restaurada.")
+            self.app.after(0, self.app.update_inference_output, "Asistencia interactiva en vivo restaurada.")
+            log.info("Modo Solo Aprendizaje desactivado.")
+
+    # =========================================================================
+    # GESTIÓN DE EVALUACIÓN DE TARJETAS (STAGING)
+    # =========================================================================
+    def on_approve_staging(self, id_cubeta: str, solucion: str):
+        """
+        Aprueba directamente la solución deducida por la IA en una tarjeta de aprendizaje.
+        La promueve a la memoria oficial y purga la tarjeta de staging.
+        """
+        threading.Thread(target=self._async_approve_staging, args=(id_cubeta, solucion), daemon=True).start()
+
+    def _async_approve_staging(self, id_cubeta: str, solucion: str):
+        self.app.after(0, self.app.update_inference_output, f"Aprobando caso [{id_cubeta}]...")
+        # Generar embedding semántico oficial (gemini-embedding-001)
+        vector = self.llm.generar_embedding(solucion)
+        
+        ok = self.brain.approve_staging_case(id_cubeta, solucion, operador=self.tecnico_nombre, vector=vector)
+        if ok:
+            self.app.after(0, self.app.append_chat, "Agente", f"✅ Caso [{id_cubeta}] aprobado con éxito y guardado en memory_v3.db!")
+            self.refresh_staging_ui()
+            self.refresh_memory_ui()
+        else:
+            self.app.after(0, self.app.append_chat, "Agente", f"⚠️ No se pudo aprobar el caso [{id_cubeta}]. Verifica que la solución sea una acción técnica válida.")
+
+    def on_correct_staging(self, id_cubeta: str, operator_text: str, case_dict: dict):
+        """
+        Toma la respuesta o corrección técnica ingresada por el operador, la fusiona con la
+        pre-síntesis mediante Gemini, valida con Gatekeeper y persiste en memoria oficial.
+        """
+        if not operator_text or not operator_text.strip():
+            self.app.after(0, self.app.append_chat, "Agente", "⚠️ Por favor escribe tu respuesta o corrección en el campo de texto antes de presionar 'Responder / Corregir y Guardar'.")
+            return
+
+        threading.Thread(target=self._async_correct_staging, args=(id_cubeta, operator_text, case_dict), daemon=True).start()
+
+    def _async_correct_staging(self, id_cubeta: str, operator_text: str, case_dict: dict):
+        self.app.after(0, self.app.update_inference_output, f"Integrando corrección del operador para [{id_cubeta}]...")
+        
+        # Integración inteligente con Gemini respetando lineamientos SOMOS
+        solucion_final = self.llm.integrar_correccion_humana(case_dict, operator_text)
+
+        # Generar vector semántico con gemini-embedding-001
+        vector = self.llm.generar_embedding(solucion_final)
+
+        ok = self.brain.approve_staging_case(id_cubeta, solucion_final, operador=self.tecnico_nombre, vector=vector)
+        if ok:
+            self.app.after(0, self.app.append_chat, "Agente", f"✏️ Corrección integrada para [{id_cubeta}]. Solución oficial registrada:\n\"{solucion_final}\"")
+            self.refresh_staging_ui()
+            self.refresh_memory_ui()
+        else:
+            self.app.after(0, self.app.append_chat, "Agente", f"⚠️ Error registrando corrección para [{id_cubeta}].")
+
+    def on_discard_staging(self, id_cubeta: str):
+        """Descarta y elimina permanentemente una tarjeta de evaluación de staging."""
+        threading.Thread(target=self._async_discard_staging, args=(id_cubeta,), daemon=True).start()
+
+    def _async_discard_staging(self, id_cubeta: str):
+        ok = self.brain.discard_staging_case(id_cubeta)
+        if ok:
+            self.app.after(0, self.app.append_chat, "Agente", f"🗑️ Caso de aprendizaje [{id_cubeta}] descartado.")
+            self.refresh_staging_ui()
+        else:
+            self.app.after(0, self.app.append_chat, "Agente", f"⚠️ No se pudo descartar el caso [{id_cubeta}].")
+
+    # =========================================================================
+    # ACCIONES DE CASO EN TAB 1 (OBSERVACIÓN Y CHAT)
+    # =========================================================================
+    def on_delete_case(self, case_id: str):
+        """Elimina un caso específico de la memoria oficial tras solicitud del usuario."""
+        self.brain.delete_case(case_id)
+        self.refresh_memory_ui()
 
     def on_select_bucket(self, bucket_id: str):
         """Cambia el foco a otra de las cubetas activas al hacer clic en su píldora."""
@@ -172,13 +323,7 @@ class MesaAyudaAgentApp:
             self.app.append_chat("Agente", f"🔄 Foco cambiado al caso de: {focused.tecnico_campo} (Sitio: {focused.codigo_sitio or 'N/A'}).")
 
     def on_approve_suggestion(self):
-        """
-        El técnico aprueba la sugerencia técnica del agente con 1 solo clic.
-        REGLA CRÍTICA DE DISEÑO:
-        Aprobar una sugerencia NO cierra la cubeta. La acumula en la lista de pasos
-        y sugerencias aprobadas del caso, permitiendo continuar con diagnósticos
-        adicionales hasta el cierre formal con 'Finalizar Caso'.
-        """
+        """El técnico aprueba la sugerencia técnica del agente (no cierra la cubeta)."""
         focused = self.bucket_manager.get_focused_bucket()
         if self.current_agent_suggestion:
             sug = self.current_agent_suggestion
@@ -189,7 +334,6 @@ class MesaAyudaAgentApp:
             self.app.append_chat(self.tecnico_nombre, f"✅ Sugerencia técnica aprobada: '{sug}'")
             self.app.append_chat("Agente", "👍 Sugerencia guardada en el historial del caso. La cubeta sigue abierta para más pasos o validaciones. Cuando la atención concluya, presiona '🏁 Finalizar Caso'.")
             
-            # Liberar estado asking para seguir monitoreando herramientas posteriores
             self.is_asking = False
             self.app.set_state("active")
             self.app.update_inference_output("Sugerencia incorporada al caso. Continuando observación...")
@@ -199,10 +343,7 @@ class MesaAyudaAgentApp:
             self.app.append_chat("Agente", "ℹ️ No hay ninguna sugerencia técnica activa para aprobar en este momento.")
 
     def on_close_case(self, user_solution: str = ""):
-        """
-        Cierre explícito de la cubeta activa y persistencia final en la base de datos SQL + Vectorial.
-        Se ejecuta en un hilo separado para mantener la UI fluida mientras Gemini sintetiza el episodio.
-        """
+        """Cierre explícito manual de la cubeta activa desde el botón '🏁 Finalizar Caso'."""
         focused = self.bucket_manager.get_focused_bucket()
         if not focused:
             self.app.append_chat("Agente", "ℹ️ No hay ninguna cubeta técnica activa para finalizar.")
@@ -211,22 +352,20 @@ class MesaAyudaAgentApp:
         threading.Thread(target=self._process_case_finalization, args=(focused, user_solution), daemon=True).start()
 
     def _process_case_finalization(self, bucket: CaseBucket, user_solution: str):
-        """Sintetiza la trazabilidad de la cubeta con Gemini, valida con Gatekeeper y persiste en BD."""
+        """Sintetiza la trazabilidad de la cubeta con Gemini, valida con Gatekeeper y persiste en BD oficial."""
         b_id = bucket.bucket_id
         tec_name = bucket.tecnico_campo
-        pasos_total = len(bucket.steps)
+        pasos_total = bucket.total_steps_lifetime
 
         self.app.after(0, self.app.append_chat, "Agente", f"🏁 Finalizando atención de {tec_name} ({pasos_total} pasos)... Sintetizando caso con IA...")
         self.app.after(0, self.app.update_inference_output, f"Sintetizando episodio para {tec_name}...")
 
         timeline_text = bucket.compile_timeline_text()
 
-        # Determinar solución oficial candidata
         solucion_candidata = user_solution.strip()
         if not solucion_candidata and bucket.approved_suggestions:
             solucion_candidata = " | ".join(bucket.approved_suggestions)
 
-        # Síntesis estructurada con Gemini (AnalisisEpisodio)
         episodio = self.llm.sintetizar_episodio(timeline_text)
 
         if episodio:
@@ -234,15 +373,13 @@ class MesaAyudaAgentApp:
             ciudad_nodo = episodio.ciudad_nodo
             herramienta = episodio.herramienta_origen
             resumen_problema = episodio.descripcion_problema
-            ruta_pasos = episodio.ruta_diagnostico_pasos
             if not solucion_candidata:
                 solucion_candidata = episodio.accion_sugerida
         else:
             categoria_falla = "Soporte General"
-            ciudad_nodo = "Desconocido"
+            ciudad_nodo = bucket.codigo_sitio or "Desconocido"
             herramienta = "General"
             resumen_problema = f"Atención técnica con {tec_name}"
-            ruta_pasos = f"Secuencia de {pasos_total} pasos registrados en herramientas SOMOS."
             if not solucion_candidata:
                 solucion_candidata = self.current_agent_suggestion or "Atención finalizada por el operador de Mesa de Ayuda."
 
@@ -255,11 +392,10 @@ class MesaAyudaAgentApp:
             return
 
         # Generación de Vector de Embedding
-        self.app.after(0, self.app.update_inference_output, "Generando vector semántico (text-embedding-004)...")
+        self.app.after(0, self.app.update_inference_output, "Generando vector semántico (gemini-embedding-001)...")
         texto_para_vector = f"{resumen_problema} | {solucion_candidata} | {categoria_falla} | {herramienta}"
         vector = self.llm.generar_embedding(texto_para_vector)
 
-        # Persistir en SQLite + Vectorial y JSON/PNG
         extra_meta = {
             "tecnico_campo": tec_name,
             "id_servicio_cun": bucket.id_servicio_cun,
@@ -267,7 +403,7 @@ class MesaAyudaAgentApp:
             "categoria_falla": categoria_falla,
             "ciudad_nodo": ciudad_nodo,
             "estado_validacion": "APROBADO_HUMANO" if user_solution else "APROBADO_IA",
-            "ruta_diagnostico_json": json.dumps([s.to_dict() for s in bucket.steps], ensure_ascii=False)
+            "ruta_diagnostico_json": json.dumps(bucket.partial_summaries, ensure_ascii=False)
         }
 
         guardado = self.brain.save_case(
@@ -287,7 +423,7 @@ class MesaAyudaAgentApp:
             self.current_agent_suggestion = ""
             self.last_problem_signature = ""
 
-            self.app.after(0, self.app.append_chat, "Agente", f"✅ Caso finalizado y almacenado con éxito en memory_v3.db!\n- Técnico: {tec_name}\n- Categoría: {categoria_falla}\n- Solución Oficial: {solucion_candidata}\n- Embedding: {'Generado (768d)' if vector else 'Pendiente'}")
+            self.app.after(0, self.app.append_chat, "Agente", f"✅ Caso finalizado y almacenado con éxito en memory_v3.db!\n- Técnico: {tec_name}\n- Categoría: {categoria_falla}\n- Solución Oficial: {solucion_candidata}\n- Embedding: {'Generado (3072d)' if vector else 'Pendiente'}")
             self.app.after(0, self.app.set_state, "active")
             self.app.after(0, self.app.update_inference_output, "Caso cerrado con éxito. Observando nuevos eventos...")
             self._refresh_pills_ui()
@@ -338,10 +474,9 @@ class MesaAyudaAgentApp:
         threading.Thread(target=self._process_chat_question, args=(msg,), daemon=True).start()
 
     def _process_chat_question(self, msg: str):
-        """Ejecuta consulta RAG combinando vector embedding + BM25 + Gemini."""
+        """Ejecuta consulta RAG combinando vector embedding + similitud semántica + Gemini."""
         self.app.after(0, self.app.append_chat, "Agente", "Buscando casos similares en base de datos híbrida...")
 
-        # Generar embedding de la pregunta si es posible
         q_vec = self.llm.generar_embedding(msg)
         casos_similares = self.search_engine.search(msg, top_k=MAX_CASOS_HISTORICOS_RAG, query_vector=q_vec)
 
@@ -371,15 +506,95 @@ class MesaAyudaAgentApp:
         ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
         return buf.value
 
+    # =========================================================================
+    # COLA EN SEGUNDO PLANO (WORKER THREAD): COMPRESIÓN Y AUTO-CIERRE
+    # =========================================================================
+    def _background_worker_loop(self):
+        """Procesa tareas asíncronas pesadas (resumen de 8 pasos y auto-cierre de cubetas a staging)."""
+        while True:
+            try:
+                task = self.bg_tasks_queue.get()
+                task_type = task.get("type")
+
+                if task_type == "compress_block":
+                    bucket = task["bucket"]
+                    steps_to_compress = list(task["steps"])
+                    resumen = self.llm.resumir_bloque_pasos(steps_to_compress)
+                    bucket.compress_current_block(resumen)
+                    self.bucket_manager.save_checkpoint_to_disk()
+                    self._refresh_pills_ui()
+                    log.info(f"Bloque de 8 pasos comprimido con éxito para {bucket.bucket_id}: {resumen[:80]}...")
+
+                elif task_type == "auto_close_staging":
+                    bucket: CaseBucket = task["bucket"]
+                    b_id = bucket.bucket_id
+                    timeline_text = bucket.compile_timeline_text()
+
+                    # Sintetizar tarjeta con esquema PreSintesisCaso
+                    pre_sintesis = self.llm.sintetizar_para_revision(timeline_text)
+
+                    if pre_sintesis:
+                        staging_data = {
+                            "id_cubeta": b_id,
+                            "fecha_inicio": bucket.created_at,
+                            "fecha_cierre": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "tecnico_campo": pre_sintesis.nombre_tecnico_en_sitio if pre_sintesis.nombre_tecnico_en_sitio != "Desconocido" else bucket.tecnico_campo,
+                            "id_servicio_cun": pre_sintesis.id_servicio_cun or bucket.id_servicio_cun,
+                            "codigo_sitio": pre_sintesis.codigo_sitio if pre_sintesis.codigo_sitio != "Desconocido" else bucket.codigo_sitio,
+                            "mac_ip_detectadas": ", ".join(bucket.mac_addresses + bucket.ip_addresses),
+                            "herramientas_usadas": pre_sintesis.herramientas_usadas,
+                            "categoria_deducida": pre_sintesis.categoria_falla,
+                            "problema_observado": pre_sintesis.problema_observado,
+                            "solucion_deducida_ia": pre_sintesis.solucion_deducida_ia,
+                            "pregunta_duda_ia": pre_sintesis.pregunta_duda_ia,
+                            "resumen_bloques": bucket.partial_summaries
+                        }
+                    else:
+                        staging_data = {
+                            "id_cubeta": b_id,
+                            "fecha_inicio": bucket.created_at,
+                            "fecha_cierre": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "tecnico_campo": bucket.tecnico_campo,
+                            "id_servicio_cun": bucket.id_servicio_cun,
+                            "codigo_sitio": bucket.codigo_sitio,
+                            "mac_ip_detectadas": ", ".join(bucket.mac_addresses + bucket.ip_addresses),
+                            "herramientas_usadas": "Artemis/Red",
+                            "categoria_deducida": "Soporte General",
+                            "problema_observado": f"Atención registrada con {bucket.tecnico_campo}",
+                            "solucion_deducida_ia": "Atención finalizada por inactividad funcional.",
+                            "pregunta_duda_ia": "¿Qué procedimiento técnico específico se completó para este caso?",
+                            "resumen_bloques": bucket.partial_summaries
+                        }
+
+                    # Guardar en base de datos temporal
+                    self.brain.insert_staging_case(staging_data, steps=[s.to_dict() for s in bucket.steps])
+                    self.refresh_staging_ui()
+                    self._refresh_pills_ui()
+
+                    self.app.after(0, self.app.append_chat, "Agente", f"📋 Cubeta de {staging_data['tecnico_campo']} auto-cerrada por inactividad (10 min). Tarjeta lista en '📋 Evaluar Aprendizaje'.")
+                    log.info(f"Cubeta [{b_id}] movida a staging de tarjetas.")
+
+                self.bg_tasks_queue.task_done()
+            except Exception as e:
+                log.error(f"Error en worker loop en segundo plano: {e}")
+                time.sleep(1.0)
+
+    # =========================================================================
+    # CICLO DE VISIÓN CONTINUO
+    # =========================================================================
     def vision_loop(self):
         """
         Ciclo Continuo de Visión y Pre-Filtrado:
         1. Comprueba si la ventana está permitida.
-        2. Captura imagen y evalúa cambio de píxeles (>2%). Si no cambió, duerme sin consumir OCR ni IA.
-        3. Realiza OCR y verifica blindaje contra Login.
-        4. Evalúa duplicidad de texto (>92%). Si es idéntico, duerme sin consumir IA.
-        5. Extrae anclas y enruta a la cubeta correspondiente.
-        6. Si detecta anomalía técnica real, emite recomendación y actualiza UI.
+        2. Captura imagen y extrae OCR aplicando recorte inteligente de Artemis (24% izquierda, 8% pestañas).
+        3. Evalúa cambio de píxeles (>2%) y duplicidad de texto (>92%) para no consumir tokens en pantallas estáticas.
+        4. Blindaje contra pantallas de Login.
+        5. Extrae anclas unívocas (Técnico, CUN, Sitio, MAC).
+        6. Regla de Oro: Si no hay ancla fuerte, descarta la captura para evitar mezclas erróneas.
+        7. Enruta a cubeta correspondiente (score >= 0.70 o crea nueva con técnico/CUN diferente).
+        8. Si la cubeta acumula 8 pasos, programa compresión de bloque en segundo plano.
+        9. Revisa cubetas con más de 10 min de inactividad para moverlas a tarjetas de evaluación.
+        10. Revisa inactividad global de 30 min en 'Modo Solo Aprendizaje' para pasar a evaluación.
         """
         while True:
             if not self.is_paused:
@@ -389,13 +604,13 @@ class MesaAyudaAgentApp:
                 permitida, motivo_perm = self.pre_filter.is_window_allowed(active_title)
                 if not permitida:
                     if "mesaayudaagent" in active_title.lower():
-                        self.app.after(0, self.app.update_inference_output, "Viendo panel del agente. Manteniendo estado de cubetas...")
+                        pass
                     else:
                         self.app.after(0, self.app.update_eye_output, f"🙈 Ventana excluida:\n[{active_title}]\nMotivo: {motivo_perm}")
                         self.app.after(0, self.app.update_inference_output, f"Reposo: {motivo_perm}")
                 else:
-                    # PASO 2: Captura de pantalla
-                    raw_text = self.vision.capture_and_read()
+                    # PASO 2: Captura de pantalla con recorte de Artemis
+                    raw_text = self.vision.capture_and_read(active_title)
                     current_img = self.vision.last_image
 
                     # PASO 2.1: Pre-filtro de cambio de píxeles
@@ -407,7 +622,7 @@ class MesaAyudaAgentApp:
                         # PASO 3: Blindaje de Seguridad contra Pantallas de Login
                         es_login, motivo_login = self.pre_filter.is_login_or_forbidden(active_title, raw_text)
                         if es_login:
-                            self.last_valid_image = None # Purga inmediata de RAM
+                            self.last_valid_image = None
                             self.last_valid_ocr = "Contexto omitido por seguridad (Login detectado)."
                             self.app.after(0, self.app.update_eye_output, f"🔒 PANTALLA DE LOGIN DESCARTADA\n\n{motivo_login}")
                             self.app.after(0, self.app.update_inference_output, "Seguridad activa: Pantalla de login descartada automáticamente.")
@@ -422,47 +637,95 @@ class MesaAyudaAgentApp:
                             self.last_valid_image = current_img
                             self.last_valid_title = active_title
 
-                            # PASO 5: Extracción de Anclas y Enrutamiento a Cubeta
+                            # PASO 5: Extracción de Anclas y Verificación Estricta
                             anchors = self.pre_filter.extract_anchors(raw_text, active_title)
-                            target_bucket, _ = self.bucket_manager.route_capture(active_title, raw_text, anchors)
-                            self._refresh_pills_ui()
+                            has_anchor, motivo_ancla = self.pre_filter.has_strong_anchor(anchors)
 
-                            if is_dup:
-                                self.app.after(0, self.app.update_eye_output, f"[Texto sin cambios significativos | Cubeta: {target_bucket.tecnico_campo}]\n\n{raw_text[:300]}...")
+                            if not has_anchor:
+                                # POLÍTICA CERO ADIVINANZAS: Si no hay ancla fuerte, descartar captura
+                                self.app.after(0, self.app.update_eye_output, f"[Captura descartada: Sin ancla unívoca]\n\n{raw_text[:300]}...")
+                                self.app.after(0, self.app.update_inference_output, f"Omitiendo captura sin ancla clara ({motivo_ancla}) para evitar mezclas.")
                             else:
-                                self.app.after(0, self.app.update_eye_output, raw_text)
+                                # PASO 6: Enrutamiento Concurrente Anti-Mezcla
+                                target_bucket, es_nuevo_paso, needs_block_summary = self.bucket_manager.route_capture(
+                                    active_title, raw_text, anchors
+                                )
 
-                                # PASO 6: Inferencia con IA solo si no estamos en 'asking' para esa misma novedad
-                                if not self.is_asking:
-                                    self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
-                                    analisis = self.llm.analizar_texto_pantalla(raw_text)
+                                if target_bucket is not None:
+                                    self._refresh_pills_ui()
 
-                                    if analisis and analisis.es_problema_tecnico_real:
-                                        sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
-                                        if sig != self.last_problem_signature:
-                                            self.last_problem_signature = sig
-                                            self.is_asking = True
-                                            self.current_visual_context = analisis.descripcion_problema
-                                            self.current_agent_suggestion = analisis.accion_sugerida
+                                    # Si se acumularon 8 pasos, programar resumen de bloque en segundo plano
+                                    if needs_block_summary:
+                                        self.bg_tasks_queue.put({
+                                            "type": "compress_block",
+                                            "bucket": target_bucket,
+                                            "steps": [s.to_dict() for s in target_bucket.steps]
+                                        })
 
-                                            inf_text = (
-                                                f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
-                                                f"Problema: {analisis.descripcion_problema}\n"
-                                                f"Sugerencia: {analisis.accion_sugerida}\n"
-                                                f"Confianza: {analisis.nivel_confianza}\n\n"
-                                                f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
-                                            )
-                                            self.app.after(0, self.app.set_state, "asking")
-                                            self.app.after(0, self.app.update_inference_output, inf_text)
-                                            self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
+                                    if is_dup:
+                                        self.app.after(0, self.app.update_eye_output, f"[Texto sin cambios | Cubeta: {target_bucket.tecnico_campo}]\n\n{raw_text[:300]}...")
                                     else:
-                                        self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
+                                        self.app.after(0, self.app.update_eye_output, raw_text)
 
-            # Revisión periódica de cubetas inactivas
-            expired = self.bucket_manager.check_expired_buckets()
-            if expired:
-                for exp_b in expired:
-                    log.info(f"Cubeta {exp_b.bucket_id} inactiva por más de 15 minutos.")
+                                        # En modo Solo Aprendizaje, omitir prompts interactivos
+                                        if self.is_learning_mode:
+                                            self.app.after(0, self.app.update_inference_output, f"🎓 Aprendiendo en segundo plano: {target_bucket.tecnico_campo} ({target_bucket.total_steps_lifetime} pasos acumulados)...")
+                                        elif not self.is_asking:
+                                            self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
+                                            analisis = self.llm.analizar_texto_pantalla(raw_text)
+
+                                            if analisis and analisis.es_problema_tecnico_real:
+                                                sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
+                                                if sig != self.last_problem_signature:
+                                                    self.last_problem_signature = sig
+                                                    self.is_asking = True
+                                                    self.current_visual_context = analisis.descripcion_problema
+                                                    self.current_agent_suggestion = analisis.accion_sugerida
+
+                                                    inf_text = (
+                                                        f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
+                                                        f"Problema: {analisis.descripcion_problema}\n"
+                                                        f"Sugerencia: {analisis.accion_sugerida}\n"
+                                                        f"Confianza: {analisis.nivel_confianza}\n\n"
+                                                        f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
+                                                    )
+                                                    self.app.after(0, self.app.set_state, "asking")
+                                                    self.app.after(0, self.app.update_inference_output, inf_text)
+                                                    self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
+                                            else:
+                                                self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
+
+            # =================================================================
+            # TEMPORIZADORES DE AUTO-CIERRE E INACTIVIDAD
+            # =================================================================
+            # 1. Cierre individual de cubeta por 10 minutos de inactividad
+            expired_buckets = self.bucket_manager.check_expired_buckets()
+            for exp_b in expired_buckets:
+                log.info(f"Cubeta [{exp_b.bucket_id}] superó 10 min de inactividad. Moviendo a staging...")
+                closed_b = self.bucket_manager.close_and_extract_bucket(exp_b.bucket_id)
+                if closed_b:
+                    self.bg_tasks_queue.put({
+                        "type": "auto_close_staging",
+                        "bucket": closed_b
+                    })
+
+            # 2. Cierre global del Modo Solo Aprendizaje tras 30 minutos de inactividad
+            if self.is_learning_mode and self.bucket_manager.check_global_inactivity():
+                log.info("30 minutos de inactividad global detectados en Modo Solo Aprendizaje. Transicionando a evaluación...")
+                self.is_learning_mode = False
+                self.is_paused = True
+                self.app.after(0, self.app.set_state, "paused")
+                self.app.after(0, self.app.switch_to_tab, "📋 Evaluar Aprendizaje")
+                self.app.after(0, self.app.append_chat, "Agente", "⏰ 30 minutos de inactividad global completados. El Modo Solo Aprendizaje se ha cerrado automáticamente. Por favor revisa las tarjetas en '📋 Evaluar Aprendizaje'.")
+                
+                # Cerrar cualquier cubeta remanente hacia staging
+                for b_id in list(self.bucket_manager.active_buckets.keys()):
+                    rem_b = self.bucket_manager.close_and_extract_bucket(b_id)
+                    if rem_b:
+                        self.bg_tasks_queue.put({
+                            "type": "auto_close_staging",
+                            "bucket": rem_b
+                        })
 
             time.sleep(INTERVALO_VISION_SEGUNDOS)
 

@@ -190,9 +190,13 @@ class PreFilterEngine:
 
         # 1. Técnico de campo
         # Patrones comunes en Artemis: 'Chat con Nombre Apellido', 'Ts Nombre Apellido', 'Técnico: Nombre'
-        m_tec = re.search(r"(?:Chat\s+con|Ts|T[ée]cnico:?)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})", full_content)
+        # Usamos [^\S\r\n]+ para no capturar saltos de línea ni palabras de la siguiente línea (como CUN)
+        m_tec = re.search(r"(?:Chat\s+con:?|Ts:?|T[ée]cnico:?)[^\S\r\n]+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:[^\S\r\n]+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){1,3})", full_content, re.IGNORECASE)
         if m_tec:
-            anchors["tecnico_campo"] = m_tec.group(1).strip()
+            tec_candidato = m_tec.group(1).strip()
+            # Validar que no sea una palabra común de la interfaz
+            if tec_candidato.lower() not in ["conversaciones", "pendientes", "activos", "en linea", "desconocido", "somos network"]:
+                anchors["tecnico_campo"] = tec_candidato.title()
 
         # 2. CUN o ID de Servicio
         m_cun = re.search(r"(?:CUN|ID(?:\s*Servicio)?|Contrato)[:\s._-]*(\d{5,12})", full_content, re.IGNORECASE)
@@ -200,9 +204,9 @@ class PreFilterEngine:
             anchors["id_servicio_cun"] = m_cun.group(1).strip()
 
         # 3. Código de Sitio / Nodo SOMOS (Ej: SOMOS-MDE-RIVA-T4-415, RIVA-T4-415, CMAZ, etc.)
-        m_sitio = re.search(r"(SOMOS-[A-Z]{3}-[A-Z0-9]+(?:-T\d+-\d+(?:-\d+)?)?|[A-Z]{3,4}-T\d+-\d+)", full_content)
+        m_sitio = re.search(r"(SOMOS-[A-Z]{3}-[A-Z0-9]+(?:-T\d+-\d+(?:-\d+)?)?|[A-Z]{3,4}-T\d+-\d+)", full_content, re.IGNORECASE)
         if m_sitio:
-            anchors["codigo_sitio"] = m_sitio.group(1).strip()
+            anchors["codigo_sitio"] = m_sitio.group(1).strip().upper()
 
         # 4. Direcciones MAC
         macs = re.findall(r"\b([0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2})\b", full_content)
@@ -214,8 +218,7 @@ class PreFilterEngine:
         ips = re.findall(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b", full_content)
         valid_ips = []
         for ip in set(ips):
-            # Filtrar máscaras típicas o loopbacks irrelevantes si se desea
-            if not ip.startswith("0.") and not ip.startswith("255.255."):
+            if not ip.startswith("0.") and not ip.startswith("255.255.") and not ip.startswith("127."):
                 valid_ips.append(ip)
         anchors["ip_addresses"] = valid_ips
 
@@ -241,3 +244,19 @@ class PreFilterEngine:
             anchors["herramienta_origen"] = "Web Browser"
 
         return anchors
+
+    def has_strong_anchor(self, anchors: dict) -> tuple[bool, str]:
+        """
+        Regla de Oro: Valida si la captura contiene al menos un ancla fuerte que permita
+        asociarla sin ambigüedad a un caso técnico real (Técnico, CUN, Código de Sitio o MAC).
+        Si no hay ancla, la captura se descarta para evitar mezclar técnicos o ensuciar cubetas.
+        """
+        if anchors.get("tecnico_campo"):
+            return True, f"Ancla: Técnico '{anchors['tecnico_campo']}'"
+        if anchors.get("id_servicio_cun"):
+            return True, f"Ancla: CUN '{anchors['id_servicio_cun']}'"
+        if anchors.get("codigo_sitio"):
+            return True, f"Ancla: Sitio '{anchors['codigo_sitio']}'"
+        if anchors.get("mac_addresses"):
+            return True, f"Ancla: MAC '{anchors['mac_addresses'][0]}'"
+        return False, "Captura sin ancla identificable (Descartada para no contaminar datos)"

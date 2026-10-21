@@ -114,3 +114,34 @@ class AgentBrain:
     def delete_case(self, case_id: str) -> bool:
         """Elimina un caso de SQLite, del JSON y de la imagen en disco."""
         return self.db.delete_case(case_id)
+
+    def insert_staging_case(self, staging_data: dict, steps: Optional[List[dict]] = None) -> bool:
+        """Inserta un caso pendiente en la tabla de pre-síntesis/staging."""
+        return self.db.insert_staging_case(staging_data, steps=steps)
+
+    def get_pending_staging_cases(self) -> List[dict]:
+        """Obtiene todas las pre-síntesis pendientes de evaluación."""
+        return self.db.get_pending_staging_cases()
+
+    def get_staging_case_steps(self, id_cubeta: str) -> List[dict]:
+        """Obtiene los pasos crudos de una cubeta en revisión."""
+        return self.db.get_staging_case_steps(id_cubeta)
+
+    def count_pending_staging(self) -> int:
+        """Retorna la cantidad de tarjetas pendientes."""
+        return self.db.count_pending_staging()
+
+    def approve_staging_case(
+        self,
+        id_cubeta: str,
+        solucion_final: str,
+        operador: str = "Operador",
+        categoria: Optional[str] = None,
+        vector: Optional[List[float]] = None
+    ) -> bool:
+        """Aprueba un caso de staging y lo promueve a la memoria oficial de SQLite y disco."""
+        return self.db.approve_staging_case(id_cubeta, solucion_final, operador=operador, categoria=categoria, vector=vector)
+
+    def discard_staging_case(self, id_cubeta: str) -> bool:
+        """Descarta y elimina permanentemente una tarjeta de staging."""
+        return self.db.discard_staging_case(id_cubeta)

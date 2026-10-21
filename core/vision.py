@@ -20,10 +20,11 @@ class ScreenReader:
                 
         self.last_image = None # Imagen en RAM del último ciclo válido
 
-    def capture_and_read(self) -> str:
+    def capture_and_read(self, active_title: str = "") -> str:
         """
         Captura la ventana actualmente activa y extrae su texto mediante Tesseract.
-        Aplica censura automática a notificaciones emergentes (WhatsApp, Telegram, etc.).
+        Aplica censura automática a notificaciones emergentes (WhatsApp, Telegram, etc.)
+        y recorte de la barra lateral izquierda en Artemis para no mezclar técnicos.
         """
         try:
             import ctypes
@@ -44,7 +45,7 @@ class ScreenReader:
                     try:
                         sct_img = sct.grab(monitor)
                     except Exception as grab_err:
-                        # Respaldo a pantalla completa principal si las coordenadas son negativas (ventana maximizada)
+                        # Respaldo a pantalla completa principal si las coordenadas son especiales
                         log.debug(f"Ajustando captura a pantalla completa por coordenadas especiales: {grab_err}")
                         sct_img = sct.grab(sct.monitors[1])
                 else:
@@ -52,10 +53,24 @@ class ScreenReader:
                 
                 # Convertir a imagen PIL RGB
                 img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
-                self.last_image = img
+                
+                # RECORTE INTELIGENTE EN ARTEMIS:
+                # La barra lateral izquierda (24% del ancho) contiene la lista de todos los técnicos en cola.
+                # Recortamos esa columna y el 8% superior (pestañas) para leer SOLO el chat activo central.
+                t_lower = (active_title or "").lower()
+                is_artemis = "artemis" in t_lower
+                
+                if is_artemis and img.width > 300 and img.height > 200:
+                    crop_left = int(img.width * 0.24)
+                    crop_top = int(img.height * 0.08)
+                    img_for_ocr = img.crop((crop_left, crop_top, img.width, img.height))
+                else:
+                    img_for_ocr = img
+
+                self.last_image = img_for_ocr
                 
                 # Extraer texto mediante OCR con Tesseract
-                text = pytesseract.image_to_string(img)
+                text = pytesseract.image_to_string(img_for_ocr)
                 
                 if not text:
                     return ""

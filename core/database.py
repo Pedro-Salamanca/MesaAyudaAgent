@@ -90,6 +90,39 @@ class HybridVectorDB:
                 );
                 """)
 
+                # Tabla temporal de pre-síntesis para evaluación diferida (Staging)
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS casos_por_revisar (
+                    id_cubeta TEXT PRIMARY KEY,
+                    fecha_inicio TEXT,
+                    fecha_cierre TEXT,
+                    tecnico_campo TEXT,
+                    id_servicio_cun TEXT,
+                    codigo_sitio TEXT,
+                    mac_ip_detectadas TEXT,
+                    herramientas_usadas TEXT,
+                    categoria_deducida TEXT,
+                    problema_observado TEXT,
+                    solucion_deducida_ia TEXT,
+                    pregunta_duda_ia TEXT,
+                    resumen_bloques_json TEXT,
+                    estado_revision TEXT DEFAULT 'PENDIENTE_REVISION'
+                );
+                """)
+
+                # Tabla de pasos crudos de trazabilidad de cubetas
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pasos_cubeta (
+                    id_paso INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_cubeta TEXT,
+                    numero_paso INTEGER,
+                    timestamp TEXT,
+                    herramienta TEXT,
+                    titulo_ventana TEXT,
+                    texto_ocr_limpio TEXT
+                );
+                """)
+
                 # Tabla de cola transaccional para respaldo seguro
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -106,6 +139,8 @@ class HybridVectorDB:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_casos_tecnico ON casos(tecnico_campo);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_casos_cun ON casos(id_servicio_cun);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_casos_fecha ON casos(fecha_creacion DESC);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_staging_estado ON casos_por_revisar(estado_revision);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_pasos_cubeta_id ON pasos_cubeta(id_cubeta);")
                 conn.commit()
                 log.info(f"Base de datos SQLite inicializada exitosamente en: {self.db_path}")
         except Exception as e:
@@ -445,4 +480,186 @@ class HybridVectorDB:
             return True
         except Exception as e:
             log.error(f"Error generando respaldo a Google Drive: {e}")
+            return False
+
+    def insert_staging_case(self, staging_data: dict, steps: Optional[List[dict]] = None) -> bool:
+        """
+        Inserta una pre-síntesis de caso en 'casos_por_revisar' y opcionalmente sus pasos crudos en 'pasos_cubeta'.
+        """
+        id_cubeta = staging_data.get("id_cubeta")
+        if not id_cubeta:
+            log.warning("insert_staging_case: Falta id_cubeta.")
+            return False
+
+        sql = """
+        INSERT OR REPLACE INTO casos_por_revisar (
+            id_cubeta, fecha_inicio, fecha_cierre, tecnico_campo, id_servicio_cun,
+            codigo_sitio, mac_ip_detectadas, herramientas_usadas, categoria_deducida,
+            problema_observado, solucion_deducida_ia, pregunta_duda_ia,
+            resumen_bloques_json, estado_revision
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE_REVISION');
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                bloques_json = staging_data.get("resumen_bloques_json")
+                if not bloques_json:
+                    bloques = staging_data.get("resumen_bloques", [])
+                    bloques_json = json.dumps(bloques, ensure_ascii=False) if isinstance(bloques, (list, dict)) else "[]"
+
+                cursor.execute(sql, (
+                    id_cubeta,
+                    staging_data.get("fecha_inicio", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    staging_data.get("fecha_cierre", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    staging_data.get("tecnico_campo", "Técnico en Sitio"),
+                    staging_data.get("id_servicio_cun", ""),
+                    staging_data.get("codigo_sitio", ""),
+                    staging_data.get("mac_ip_detectadas", ""),
+                    staging_data.get("herramientas_usadas", "General"),
+                    staging_data.get("categoria_deducida", "Soporte General"),
+                    staging_data.get("problema_observado", ""),
+                    staging_data.get("solucion_deducida_ia", ""),
+                    staging_data.get("pregunta_duda_ia", "¿Qué acción técnica específica se realizó en este caso?"),
+                    bloques_json
+                ))
+
+                if steps:
+                    for s in steps:
+                        cursor.execute("""
+                        INSERT INTO pasos_cubeta (id_cubeta, numero_paso, timestamp, herramienta, titulo_ventana, texto_ocr_limpio)
+                        VALUES (?, ?, ?, ?, ?, ?);
+                        """, (
+                            id_cubeta,
+                            s.get("step_number", 0),
+                            s.get("timestamp", ""),
+                            s.get("tool_name", "General"),
+                            s.get("window_title", ""),
+                            s.get("ocr_text", "")
+                        ))
+
+                conn.commit()
+                log.info(f"Pre-síntesis de cubeta [{id_cubeta}] guardada en 'casos_por_revisar' con éxito.")
+                return True
+        except Exception as e:
+            log.error(f"Error insertando caso en staging: {e}")
+            return False
+
+    def get_pending_staging_cases(self) -> List[Dict]:
+        """Obtiene todas las pre-síntesis pendientes de revisión humana."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT * FROM casos_por_revisar
+                WHERE estado_revision = 'PENDIENTE_REVISION'
+                ORDER BY fecha_cierre DESC;
+                """)
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            log.error(f"Error obteniendo pre-síntesis pendientes: {e}")
+            return []
+
+    def get_staging_case_steps(self, id_cubeta: str) -> List[Dict]:
+        """Obtiene los pasos de atención asociados a una cubeta en revisión."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT * FROM pasos_cubeta
+                WHERE id_cubeta = ?
+                ORDER BY numero_paso ASC;
+                """, (id_cubeta,))
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            log.error(f"Error obteniendo pasos de cubeta {id_cubeta}: {e}")
+            return []
+
+    def count_pending_staging(self) -> int:
+        """Retorna el número de tarjetas pendientes de revisión."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) AS total FROM casos_por_revisar WHERE estado_revision = 'PENDIENTE_REVISION';")
+                row = cursor.fetchone()
+                return row["total"] if row else 0
+        except Exception:
+            return 0
+
+    def approve_staging_case(
+        self,
+        id_cubeta: str,
+        solucion_final: str,
+        operador: str = "Operador",
+        categoria: Optional[str] = None,
+        vector: Optional[List[float]] = None
+    ) -> bool:
+        """
+        Aprueba y promueve un caso de 'casos_por_revisar' a la tabla oficial 'casos'.
+        Una vez persistido en la memoria oficial, purga automáticamente el registro temporal
+        de 'casos_por_revisar' y 'pasos_cubeta' para mantener la base de datos limpia.
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM casos_por_revisar WHERE id_cubeta = ?;", (id_cubeta,))
+                row = cursor.fetchone()
+                if not row:
+                    log.warning(f"No se encontró caso en staging con ID [{id_cubeta}].")
+                    return False
+                r_dict = dict(row)
+
+            # Validar con Gatekeeper
+            valido, motivo = self.validate_gatekeeper(solucion_final)
+            if not valido:
+                log.warning(f"Aprobación rechazada por Gatekeeper para [{id_cubeta}]: {motivo}")
+                return False
+
+            case_data = {
+                "id_caso": f"caso_{id_cubeta.replace('cubeta_', '')}",
+                "fecha_creacion": r_dict.get("fecha_cierre") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "operador_mesa": operador,
+                "tecnico_campo": r_dict.get("tecnico_campo") or "Técnico en Sitio",
+                "id_servicio_cun": r_dict.get("id_servicio_cun") or "",
+                "herramienta_origen": r_dict.get("herramientas_usadas") or "General",
+                "categoria_falla": categoria or r_dict.get("categoria_deducida") or "Soporte General",
+                "ciudad_nodo": r_dict.get("codigo_sitio") or "Desconocido",
+                "estado_validacion": "APROBADO_HUMANO",
+                "problema_detectado": r_dict.get("problema_observado") or "",
+                "ruta_diagnostico_json": r_dict.get("resumen_bloques_json") or "[]",
+                "sugerencia_ia": r_dict.get("solucion_deducida_ia") or "",
+                "solucion_oficial": solucion_final
+            }
+
+            # Insertar en tabla oficial 'casos'
+            inserted = self.insert_case(case_data, vector=vector)
+            if not inserted:
+                return False
+
+            # Purgar de staging efímero
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM casos_por_revisar WHERE id_cubeta = ?;", (id_cubeta,))
+                cursor.execute("DELETE FROM pasos_cubeta WHERE id_cubeta = ?;", (id_cubeta,))
+                conn.commit()
+
+            log.info(f"Caso [{id_cubeta}] promovido a casos oficiales y purgado de staging efímero con éxito.")
+            return True
+        except Exception as e:
+            log.error(f"Error aprobando caso staging {id_cubeta}: {e}")
+            return False
+
+    def discard_staging_case(self, id_cubeta: str) -> bool:
+        """
+        Descarta y purga una pre-síntesis de 'casos_por_revisar' y 'pasos_cubeta'.
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM casos_por_revisar WHERE id_cubeta = ?;", (id_cubeta,))
+                cursor.execute("DELETE FROM pasos_cubeta WHERE id_cubeta = ?;", (id_cubeta,))
+                conn.commit()
+            log.info(f"Caso de staging [{id_cubeta}] descartado y purgado con éxito.")
+            return True
+        except Exception as e:
+            log.error(f"Error descartando caso staging {id_cubeta}: {e}")
             return False
