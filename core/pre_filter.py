@@ -210,8 +210,9 @@ class PreFilterEngine:
             if len(tec_candidato) > 2 and tec_candidato.lower() not in palabras_ignorar:
                 anchors["tecnico_campo"] = tec_candidato.title()
 
-        # 2. CUN o ID de Servicio (Soporta números directos y radicados compuestos con guiones como 7373-26-0001307588)
-        m_cun = re.search(r"(?:CUN|ID(?:\s*Servicio)?|Contrato)[:\s._-]*([0-9]+(?:-[0-9]+)+|\d{4,16})", full_content, re.IGNORECASE)
+        # 2. CUN o ID de Servicio (Soporta CUN compuesto con guiones ej. 7373-26-0001307588 y radicados numéricos de 5+ dígitos)
+        # Excluye 'Client ID', 'Server ID', 'VLAN ID' y hostnames que contienen guiones como 504-1
+        m_cun = re.search(r"\b(?:CUN|Radicado|Ticket|ID\s*Servicio|Contrato)[:\s._-]*([0-9]{3,6}(?:-[0-9]{1,6})+(?:-[0-9]{2,12})?|\d{5,12})\b", full_content, re.IGNORECASE)
         if m_cun:
             anchors["id_servicio_cun"] = m_cun.group(1).strip()
 
