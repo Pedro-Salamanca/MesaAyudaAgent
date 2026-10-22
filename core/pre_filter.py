@@ -25,11 +25,12 @@ class PreFilterEngine:
         self.last_ocr_hash = ""
         self.last_filtered_reason = ""
 
-    def has_significant_pixel_change(self, new_image, threshold: float = 0.02) -> bool:
+    def has_significant_pixel_change(self, new_image, threshold: float = 0.003) -> bool:
         """
         Compara la nueva captura con la anterior usando una miniatura de baja resolución (120x80 grayscale)
         mediante ImageChops.difference.
-        Si la diferencia de píxeles promedio es menor al umbral (2%), retorna False (pantalla estática).
+        Si la diferencia de píxeles promedio es menor al umbral (0.3%), retorna False (pantalla estática).
+        Un umbral de 0.3% permite detectar nuevos renglones en chats de Artemis sin falsos positivos por parpadeo de cursor.
         """
         if new_image is None:
             return False

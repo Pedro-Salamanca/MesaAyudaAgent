@@ -30,14 +30,31 @@ class ScreenReader:
             import ctypes
             from ctypes import wintypes
             
+            # Sincronizar hilo con el escritorio de entrada interactivo de Windows
+            try:
+                hdesk = ctypes.windll.user32.OpenInputDesktop(0, False, 0x0100)
+                if hdesk:
+                    ctypes.windll.user32.SetThreadDesktop(hdesk)
+                    ctypes.windll.user32.CloseDesktop(hdesk)
+            except Exception:
+                pass
+
             # 1. Obtener las coordenadas exactas de la ventana activa y su monitor correspondiente
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = wintypes.HWND
+            user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+            
+            hwnd = user32.GetForegroundWindow()
             rect = wintypes.RECT()
-            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.pointer(rect))
+            has_rect = False
+            if hwnd:
+                has_rect = bool(user32.GetWindowRect(hwnd, ctypes.byref(rect)))
 
             # Identificar el monitor físico donde reside la ventana activa (soporte multimonitor)
             MONITOR_DEFAULTTONEAREST = 2
-            hmon = ctypes.windll.user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+            user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+            user32.MonitorFromWindow.restype = wintypes.HMONITOR
+            hmon = user32.MonitorFromWindow(hwnd if hwnd else 0, MONITOR_DEFAULTTONEAREST)
 
             class MONITORINFO(ctypes.Structure):
                 _fields_ = [
@@ -49,17 +66,24 @@ class ScreenReader:
 
             mi = MONITORINFO()
             mi.cbSize = ctypes.sizeof(MONITORINFO)
-            ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.pointer(mi))
+            user32.GetMonitorInfoW(hmon, ctypes.pointer(mi))
 
             # Clamping estricto: evita coordenadas negativas en ventanas maximizadas (-8, -8 en Windows)
             # y desbordamientos fuera de los límites del monitor activo
-            clamped_left = max(mi.rcMonitor.left, rect.left)
-            clamped_top = max(mi.rcMonitor.top, rect.top)
-            clamped_right = min(mi.rcMonitor.right, rect.right)
-            clamped_bottom = min(mi.rcMonitor.bottom, rect.bottom)
+            if has_rect and (rect.right > rect.left) and (rect.bottom > rect.top):
+                clamped_left = max(mi.rcMonitor.left, rect.left)
+                clamped_top = max(mi.rcMonitor.top, rect.top)
+                clamped_right = min(mi.rcMonitor.right, rect.right)
+                clamped_bottom = min(mi.rcMonitor.bottom, rect.bottom)
+            else:
+                # Si no hay ventana en foco, capturar el área del monitor principal
+                clamped_left = mi.rcMonitor.left
+                clamped_top = mi.rcMonitor.top
+                clamped_right = mi.rcMonitor.right
+                clamped_bottom = mi.rcMonitor.bottom
 
-            width = max(100, clamped_right - clamped_left)
-            height = max(100, clamped_bottom - clamped_top)
+            width = max(200, clamped_right - clamped_left)
+            height = max(150, clamped_bottom - clamped_top)
             
             with mss.mss() as sct:
                 monitor_dict = {"top": clamped_top, "left": clamped_left, "width": width, "height": height}

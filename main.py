@@ -667,7 +667,10 @@ class MesaAyudaAgentApp:
                                 eye_text = (
                                     f"👁️ VENTANA OBSERVADA: {active_title}\n"
                                     f"ESTADO: ⏸️ En espera de atención técnica\n"
-                                    f"DETALLE: Abre un chat con un técnico en Artemis o selecciona una cubeta activa en la barra superior para registrar diagnósticos en Winbox/PuTTY/MobaXterm."
+                                    f"DETALLE: Abre un chat con un técnico en Artemis o selecciona una cubeta activa en la barra superior para registrar diagnósticos en Winbox/PuTTY/MobaXterm.\n"
+                                    f"──────────────────────────────────────────────────\n"
+                                    f"TEXTO OCR EXTRAÍDO ({len(raw_text)} caracteres):\n"
+                                    f"{raw_text.strip()}"
                                 )
                                 self.app.after(0, self.app.update_eye_output, eye_text)
                                 self.app.after(0, self.app.update_inference_output, "Esperando inicio de chat de soporte o selección de cubeta en curso.")
@@ -682,68 +685,58 @@ class MesaAyudaAgentApp:
                                         "steps": [s.to_dict() for s in target_bucket.steps]
                                     })
 
-                                    pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
-                                    cun_str = target_bucket.id_servicio_cun or "Sin CUN"
-                                    sitio_str = target_bucket.codigo_sitio or "Sin Sitio"
-                                    herramientas_str = ", ".join(target_bucket.herramientas_usadas) if target_bucket.herramientas_usadas else "General"
+                                pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
+                                cun_str = target_bucket.id_servicio_cun or "Sin CUN"
+                                sitio_str = target_bucket.codigo_sitio or "Sin Sitio"
+                                herramientas_str = ", ".join(target_bucket.herramientas_usadas) if target_bucket.herramientas_usadas else "General"
 
-                                    if is_dup:
-                                        eye_text = (
-                                            f"👁️ VENTANA: {active_title}\n"
-                                            f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
-                                            f"ESTADO: ⏸️ Pantalla sin cambios significativos ({pasos_info})\n"
-                                            f"HERRAMIENTAS: {herramientas_str}"
-                                        )
+                                estado_str = "⏸️ Pantalla sin cambios" if is_dup else "✅ Paso registrado"
+                                eye_text = (
+                                    f"👁️ VENTANA: {active_title}\n"
+                                    f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
+                                    f"ESTADO: {estado_str} ({pasos_info}) | HERRAMIENTAS: {herramientas_str}\n"
+                                    f"──────────────────────────────────────────────────\n"
+                                    f"TEXTO OCR EN VIVO ({len(raw_text)} caracteres):\n"
+                                    f"{raw_text.strip()}"
+                                )
+                                self.app.after(0, self.app.update_eye_output, eye_text)
+
+                                # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
+                                if self.is_learning_mode:
+                                    self.is_asking = False
+                                    self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
+                                elif not self.is_asking:
+                                    self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
+                                    analisis = self.llm.analizar_texto_pantalla(raw_text)
+
+                                    if analisis and analisis.es_problema_tecnico_real:
+                                        sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
+                                        if sig != self.last_problem_signature:
+                                            self.last_problem_signature = sig
+                                            self.is_asking = True
+                                            self.current_visual_context = analisis.descripcion_problema
+                                            self.current_agent_suggestion = analisis.accion_sugerida
+
+                                            inf_text = (
+                                                f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
+                                                f"Problema: {analisis.descripcion_problema}\n"
+                                                f"Sugerencia: {analisis.accion_sugerida}\n"
+                                                f"Confianza: {analisis.nivel_confianza}\n\n"
+                                                f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
+                                            )
+                                            self.app.after(0, self.app.set_state, "asking")
+                                            self.app.after(0, self.app.update_inference_output, inf_text)
+                                            self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
+                                        else:
+                                            self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
                                     else:
-                                        # Extraer líneas significativas limpias del chat o consola
-                                        lineas = [l.strip() for l in raw_text.split('\n') if len(l.strip()) > 8 and not any(w in l.lower() for w in ["conversaciones", "pendientes", "escribe un mensaje", "modo solo aprendizaje", "evaluar aprendizaje"])]
-                                        extracto_limpio = "\n".join(lineas[-4:]) if lineas else "Atención técnica en curso."
-
-                                        eye_text = (
-                                            f"👁️ VENTANA: {active_title}\n"
-                                            f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
-                                            f"ESTADO: ✅ Paso registrado ({pasos_info})\n"
-                                            f"HERRAMIENTAS: {herramientas_str}\n"
-                                            f"──────────────────────────────────────────────────\n"
-                                            f"ÚLTIMA ACCIÓN OBSERVADA:\n"
-                                            f"{extracto_limpio}"
-                                        )
-
-                                    self.app.after(0, self.app.update_eye_output, eye_text)
-
-                                    # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
-                                    if self.is_learning_mode:
-                                        self.is_asking = False
-                                        self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
-                                    elif not self.is_asking:
-                                        self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
-                                        analisis = self.llm.analizar_texto_pantalla(raw_text)
-
-                                        if analisis and analisis.es_problema_tecnico_real:
-                                            sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
-                                            if sig != self.last_problem_signature:
-                                                self.last_problem_signature = sig
-                                                self.is_asking = True
-                                                self.current_visual_context = analisis.descripcion_problema
-                                                self.current_agent_suggestion = analisis.accion_sugerida
-
-                                                inf_text = (
-                                                    f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
-                                                    f"Problema: {analisis.descripcion_problema}\n"
-                                                    f"Sugerencia: {analisis.accion_sugerida}\n"
-                                                    f"Confianza: {analisis.nivel_confianza}\n\n"
-                                                    f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
-                                                )
-                                                self.app.after(0, self.app.set_state, "asking")
-                                                self.app.after(0, self.app.update_inference_output, inf_text)
-                                                self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
-                                            else:
-                                                self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
+                                        self.app.after(0, self.app.update_inference_output, f"Observando atención de {target_bucket.tecnico_campo} (Sin novedades críticas).")
                         else:
                             eye_text = (
                                 f"👁️ VENTANA: {active_title}\n"
-                                f"ESTADO: ⏸️ En reposo (Contenido técnico mínimo insuficiente para análisis).\n"
-                                f"DETALLE: Esperando contenido visible o selección de chat activo."
+                                f"ESTADO: ⏸️ En reposo (Contenido técnico mínimo insuficiente para análisis: {len(raw_text.strip())} caracteres detectados).\n"
+                                f"──────────────────────────────────────────────────\n"
+                                f"TEXTO DETECTADO:\n{raw_text.strip() if raw_text.strip() else '(Sin texto legible)'}"
                             )
                             self.app.after(0, self.app.update_eye_output, eye_text)
 
