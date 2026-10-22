@@ -99,19 +99,8 @@ class ScreenReader:
                 # Convertir a imagen PIL RGB
                 img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
                 
-                # RECORTE INTELIGENTE EN ARTEMIS:
-                # La barra lateral izquierda (24% del ancho) contiene la lista de todos los técnicos en cola.
-                # Recortamos esa columna y el 8% superior (pestañas) para leer SOLO el chat activo central.
-                t_lower = (active_title or "").lower()
-                is_artemis = "artemis" in t_lower
-                
-                if is_artemis and img.width > 300 and img.height > 200:
-                    crop_left = int(img.width * 0.24)
-                    crop_top = int(img.height * 0.08)
-                    img_for_ocr = img.crop((crop_left, crop_top, img.width, img.height))
-                else:
-                    img_for_ocr = img
-
+                # Captura completa sin recortes destructivos para preservar encabezados y nombres en Artemis y consolas
+                img_for_ocr = img
                 self.last_image = img_for_ocr
                 
                 # Extraer texto mediante OCR con Tesseract

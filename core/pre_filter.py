@@ -195,9 +195,9 @@ class PreFilterEngine:
         full_content = f"{window_title}\n{text}"
 
         # 1. Técnico de campo
-        # Patrones comunes en Artemis: 'Chat con Nombre Apellido', 'Ts Nombre Apellido', 'Técnico: Nombre'
-        # Usamos [^\S\r\n]+ para no capturar saltos de línea ni palabras de la siguiente línea (como CUN)
-        m_tec = re.search(r"(?:Chat\s+con:?|Ts:?|T[ée]cnico:?)[^\S\r\n]+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:[^\S\r\n]+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){1,3})", full_content, re.IGNORECASE)
+        # Patrones comunes en Artemis: 'Chat con Nombre Apellido', 'TS Nombre Apellido', 'Técnico: Nombre'
+        # Usamos límites de palabra (\b) y [^\S\r\n]+ para no capturar saltos de línea ni falsos positivos de menús (ej. Option Sets)
+        m_tec = re.search(r"\b(?:Chat\s+con|T[ée]cnico|TS)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:[^\S\r\n]+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){1,3})", full_content, re.IGNORECASE)
         if m_tec:
             tec_candidato = m_tec.group(1).strip()
             # Limpiar colas de OCR o palabras de interfaz pegadas (como 'Linfo', 'Info', 'Warning', 'Estado')
@@ -210,13 +210,13 @@ class PreFilterEngine:
             if len(tec_candidato) > 2 and tec_candidato.lower() not in palabras_ignorar:
                 anchors["tecnico_campo"] = tec_candidato.title()
 
-        # 2. CUN o ID de Servicio
-        m_cun = re.search(r"(?:CUN|ID(?:\s*Servicio)?|Contrato)[:\s._-]*(\d{5,12})", full_content, re.IGNORECASE)
+        # 2. CUN o ID de Servicio (Soporta números directos y radicados compuestos con guiones como 7373-26-0001307588)
+        m_cun = re.search(r"(?:CUN|ID(?:\s*Servicio)?|Contrato)[:\s._-]*([0-9]+(?:-[0-9]+)+|\d{4,16})", full_content, re.IGNORECASE)
         if m_cun:
             anchors["id_servicio_cun"] = m_cun.group(1).strip()
 
-        # 3. Código de Sitio / Nodo SOMOS (Ej: SOMOS-MDE-RIVA-T4-415, RIVA-T4-415, CMAZ, etc.)
-        m_sitio = re.search(r"(SOMOS-[A-Z]{3}-[A-Z0-9]+(?:-T\d+-\d+(?:-\d+)?)?|[A-Z]{3,4}-T\d+-\d+)", full_content, re.IGNORECASE)
+        # 3. Código de Sitio / Nodo SOMOS (Ej: SOMOS-MDE-BEAO-T2-1211-1, SOMOS-BTA-CA85-CN1A, CMAZ, etc.)
+        m_sitio = re.search(r"(SOMOS-[A-Z]{3}-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3,4}-T\d+-\d+)", full_content, re.IGNORECASE)
         if m_sitio:
             anchors["codigo_sitio"] = m_sitio.group(1).strip().upper()
 
@@ -234,23 +234,24 @@ class PreFilterEngine:
                 valid_ips.append(ip)
         anchors["ip_addresses"] = valid_ips
 
-        # 6. Herramienta de soporte identificada
+        # 6. Herramienta de soporte identificada (evaluando título de ventana Y contenido de pantalla)
+        fc_low = full_content.lower()
         wt_low = window_title.lower()
-        if "artemis" in wt_low:
+        if "artemis" in fc_low or "somosinternet.com" in fc_low or "cola asignada" in fc_low:
             anchors["herramienta_origen"] = "Artemis"
-        elif "putty" in wt_low:
+        elif "putty" in wt_low or "speedtest" in fc_low:
             anchors["herramienta_origen"] = "Putty"
-        elif "winbox" in wt_low or "mikrotik" in wt_low:
+        elif "winbox" in wt_low or "mikrotik" in fc_low or "dhcp server" in fc_low:
             anchors["herramienta_origen"] = "WinBox"
         elif "moba" in wt_low:
             anchors["herramienta_origen"] = "MobaXterm"
-        elif "zabbix" in wt_low or "monitoreo" in wt_low:
+        elif "zabbix" in wt_low or "monitoreo" in fc_low:
             anchors["herramienta_origen"] = "Zabbix"
-        elif "vilo" in wt_low:
+        elif "vilo" in fc_low:
             anchors["herramienta_origen"] = "ViloLiving"
-        elif "selene" in wt_low:
+        elif "selene" in fc_low:
             anchors["herramienta_origen"] = "Selene"
-        elif "openwisp" in wt_low:
+        elif "openwisp" in fc_low:
             anchors["herramienta_origen"] = "OpenWisp"
         elif any(nav in wt_low for nav in ["chrome", "edge", "firefox"]):
             anchors["herramienta_origen"] = "Web Browser"
