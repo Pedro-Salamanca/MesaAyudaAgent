@@ -42,16 +42,12 @@ class HybridVectorDB:
     """
     def __init__(self, db_path: Optional[str] = None):
         self.memory_dir = MEMORY_DIR
-        self.cases_dir = CASES_DIR
-        self.images_dir = IMAGES_DIR
-        self.backup_dir = os.path.join(self.memory_dir, "Backup_DB")
 
-        # Asegurar directorios de almacenamiento
-        for path in [self.memory_dir, self.cases_dir, self.images_dir, self.backup_dir]:
-            try:
-                os.makedirs(path, exist_ok=True)
-            except Exception:
-                pass
+        # Asegurar directorio principal de la base de datos
+        try:
+            os.makedirs(self.memory_dir, exist_ok=True)
+        except Exception:
+            pass
 
         # Ruta de la base de datos principal
         if db_path:
@@ -137,6 +133,19 @@ class HybridVectorDB:
                 );
                 """)
 
+                # Tabla de manuales y procedimientos operativos base (Conocimiento oficial SOMOS)
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS manuales_base (
+                    id_manual TEXT PRIMARY KEY,
+                    titulo TEXT NOT NULL,
+                    categoria TEXT DEFAULT 'General',
+                    contenido TEXT NOT NULL,
+                    version TEXT DEFAULT '1.0',
+                    fecha_actualizacion TEXT NOT NULL,
+                    embedding_json TEXT
+                );
+                """)
+
                 # Tabla de cola transaccional para respaldo seguro
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -155,6 +164,7 @@ class HybridVectorDB:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_casos_fecha ON casos(fecha_creacion DESC);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_staging_estado ON casos_por_revisar(estado_revision);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_pasos_cubeta_id ON pasos_cubeta(id_cubeta);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_manuales_categoria ON manuales_base(categoria);")
                 conn.commit()
                 log.info(f"Base de datos SQLite inicializada exitosamente en: {self.db_path}")
         except Exception as e:
@@ -385,17 +395,7 @@ class HybridVectorDB:
                 """, (case_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                 conn.commit()
 
-            # También eliminar JSON e imagen legados si existen
-            json_file = os.path.join(self.cases_dir, f"{case_id}.json")
-            img_file = os.path.join(self.images_dir, f"{case_id}.png")
-            if os.path.exists(json_file):
-                try: os.remove(json_file)
-                except Exception: pass
-            if os.path.exists(img_file):
-                try: os.remove(img_file)
-                except Exception: pass
-
-            log.info(f"Caso [{case_id}] eliminado con éxito.")
+            log.info(f"Caso [{case_id}] eliminado con éxito de SQLite.")
             return True
         except Exception as e:
             log.error(f"Error al eliminar caso {case_id}: {e}")
@@ -491,20 +491,87 @@ class HybridVectorDB:
 
     def sync_backup_to_drive(self) -> bool:
         """
-        Ejecuta un punto de control WAL (checkpoint) y genera una copia de respaldo segura
-        en la carpeta Backup_DB de Google Drive para garantizar redundancia total.
+        Ejecuta un punto de control WAL (checkpoint) para consolidar transacciones
+        en el archivo principal memory_v3.db para que Google Drive lo sincronice en tiempo real.
         """
         try:
-            os.makedirs(self.backup_dir, exist_ok=True)
             with self.get_connection() as conn:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-
-            backup_file = os.path.join(self.backup_dir, "memory_v3_backup.db")
-            shutil.copy2(self.db_path, backup_file)
-            log.info(f"Respaldo de memoria sincronizado correctamente en: {backup_file}")
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
             return True
         except Exception as e:
-            log.error(f"Error generando respaldo a Google Drive: {e}")
+            log.error(f"Error ejecutando checkpoint WAL: {e}")
+            return False
+
+    # =========================================================================
+    # GESTIÓN DE MANUALES Y PROCEDIMIENTOS BASE (SQL VECTORIAL)
+    # =========================================================================
+    def insert_or_update_manual(
+        self,
+        id_manual: str,
+        titulo: str,
+        categoria: str,
+        contenido: str,
+        version: str = "1.0",
+        vector: Optional[List[float]] = None
+    ) -> bool:
+        """Inserta o actualiza un manual operativo con su vector semántico en manuales_base."""
+        try:
+            embedding_str = json.dumps(vector) if vector else None
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                INSERT INTO manuales_base (id_manual, titulo, categoria, contenido, version, fecha_actualizacion, embedding_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id_manual) DO UPDATE SET
+                    titulo = excluded.titulo,
+                    categoria = excluded.categoria,
+                    contenido = excluded.contenido,
+                    version = excluded.version,
+                    fecha_actualizacion = excluded.fecha_actualizacion,
+                    embedding_json = COALESCE(excluded.embedding_json, manuales_base.embedding_json);
+                """, (id_manual, titulo, categoria, contenido, version, now_str, embedding_str))
+                conn.commit()
+                log.info(f"Manual [{id_manual}] '{titulo}' guardado/actualizado exitosamente en manuales_base.")
+                return True
+        except Exception as e:
+            log.error(f"Error insertando manual [{id_manual}]: {e}")
+            return False
+
+    def get_all_manuales(self) -> List[dict]:
+        """Retorna todos los manuales almacenados en manuales_base."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id_manual, titulo, categoria, contenido, version, fecha_actualizacion FROM manuales_base ORDER BY categoria, titulo;")
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            log.error(f"Error obteniendo manuales base: {e}")
+            return []
+
+    def get_manual_by_id(self, id_manual: str) -> Optional[dict]:
+        """Obtiene un manual por su identificador único."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id_manual, titulo, categoria, contenido, version, fecha_actualizacion FROM manuales_base WHERE id_manual = ?;", (id_manual,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            log.error(f"Error obteniendo manual [{id_manual}]: {e}")
+            return None
+
+    def delete_manual(self, id_manual: str) -> bool:
+        """Elimina un manual de la base de datos."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM manuales_base WHERE id_manual = ?;", (id_manual,))
+                conn.commit()
+                log.info(f"Manual [{id_manual}] eliminado de manuales_base.")
+                return True
+        except Exception as e:
+            log.error(f"Error eliminando manual [{id_manual}]: {e}")
             return False
 
     def insert_staging_case(self, staging_data: dict, steps: Optional[List[dict]] = None) -> bool:

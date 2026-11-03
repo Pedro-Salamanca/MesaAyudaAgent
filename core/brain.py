@@ -2,27 +2,19 @@ import os
 import json
 from datetime import datetime
 from typing import Optional, List, Tuple
-from core.config import CASES_DIR, IMAGES_DIR, MEMORY_DIR, MAX_CASOS_UI_MEMORIA
+from core.config import MEMORY_DIR, MAX_CASOS_UI_MEMORIA
 from core.database import HybridVectorDB
 from core.logger import log
 
 class AgentBrain:
     """
-    Cerebro de Almacenamiento y Persistencia para MesaAyudaAgent v3.0.
-    - Utiliza HybridVectorDB (SQLite WAL + Vector RAG) como repositorio primario estructurado.
-    - Mantiene sincronización complementaria con JSON y PNG en Google Drive para compatibilidad total.
+    Cerebro de Almacenamiento y Persistencia para MesaAyudaAgent v3.2.
+    - Utiliza HybridVectorDB (SQLite WAL + Vector RAG) como repositorio centralizado estructurado.
+    - Opera 100% sobre memory_v3.db sin dependencias de carpetas de archivos sueltos.
     """
     def __init__(self, db_path=None):
         self.memory_dir = MEMORY_DIR
-        self.cases_dir = CASES_DIR
-        self.images_dir = IMAGES_DIR
         self.db = HybridVectorDB(db_path=db_path)
-
-        # Ingestar automáticamente casos legados si existen en el disco
-        try:
-            self.db.migrate_legacy_jsons()
-        except Exception as e:
-            log.warning(f"Error en verificación inicial de migración: {e}")
 
     def init_db(self):
         """Inicializa o verifica las tablas relacionales."""
@@ -40,49 +32,17 @@ class AgentBrain:
         extra_metadata: Optional[dict] = None
     ) -> bool:
         """
-        Guarda un caso tanto en la base de datos estructurada SQLite como en el backup JSON + PNG.
+        Guarda un caso estructurado y su vector semántico directamente en SQLite.
         Aplica el filtro Gatekeeper para garantizar calidad técnica.
         """
         timestamp_slug = datetime.now().strftime("%Y%m%d_%H%M%S")
         case_id = f"caso_{timestamp_slug}"
-        image_filename = f"{case_id}.png"
-        json_filename = f"{case_id}.json"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. Guardar imagen PNG si existe
-        if image_obj:
-            try:
-                os.makedirs(self.images_dir, exist_ok=True)
-                image_path = os.path.join(self.images_dir, image_filename)
-                image_obj.save(image_path, "PNG")
-            except Exception as e:
-                log.error(f"Error guardando imagen {image_filename}: {e}")
-                image_filename = ""
-        else:
-            image_filename = ""
-
-        # 2. Guardar JSON legado para compatibilidad con exploradores de archivos
-        legacy_data = {
-            "id": case_id,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "tecnico_resolutor": tecnico_nombre,
-            "window_title": active_title,
-            "visual_context": visual_context,
-            "agent_suggestion": agent_suggestion,
-            "action": action,
-            "image_file": image_filename
-        }
-        try:
-            os.makedirs(self.cases_dir, exist_ok=True)
-            with open(os.path.join(self.cases_dir, json_filename), "w", encoding="utf-8") as f:
-                json.dump(legacy_data, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            log.warning(f"Error guardando JSON legado: {e}")
-
-        # 3. Guardar en SQLite estructurado + Vector
         meta = extra_metadata or {}
         db_payload = {
             "id_caso": case_id,
-            "fecha_creacion": legacy_data["timestamp"],
+            "fecha_creacion": now_str,
             "operador_mesa": tecnico_nombre,
             "tecnico_campo": meta.get("tecnico_campo", "Técnico en Sitio"),
             "id_servicio_cun": meta.get("id_servicio_cun", ""),
@@ -98,8 +58,7 @@ class AgentBrain:
 
         success = self.db.insert_case(db_payload, vector=vector)
         if success:
-            log.info(f"Caso {case_id} guardado exitosamente en SQLite y disco por {tecnico_nombre}.")
-            # Respaldo seguro asíncrono
+            log.info(f"Caso {case_id} guardado exitosamente en SQLite por {tecnico_nombre}.")
             self.db.sync_backup_to_drive()
         return success
 
@@ -112,8 +71,20 @@ class AgentBrain:
         return self.db.get_all_cases(limit=MAX_CASOS_UI_MEMORIA)
 
     def delete_case(self, case_id: str) -> bool:
-        """Elimina un caso de SQLite, del JSON y de la imagen en disco."""
+        """Elimina un caso directamente de SQLite."""
         return self.db.delete_case(case_id)
+
+    def get_all_manuales(self) -> List[dict]:
+        """Obtiene todos los manuales operativos almacenados en SQLite."""
+        return self.db.get_all_manuales()
+
+    def insert_or_update_manual(self, id_manual: str, titulo: str, categoria: str, contenido: str, version: str = "1.0", vector: Optional[List[float]] = None) -> bool:
+        """Inserta o actualiza un manual operativo en SQLite."""
+        return self.db.insert_or_update_manual(id_manual, titulo, categoria, contenido, version=version, vector=vector)
+
+    def delete_manual(self, id_manual: str) -> bool:
+        """Elimina un manual operativo de SQLite."""
+        return self.db.delete_manual(id_manual)
 
     def insert_staging_case(self, staging_data: dict, steps: Optional[List[dict]] = None) -> bool:
         """Inserta un caso pendiente en la tabla de pre-síntesis/staging."""

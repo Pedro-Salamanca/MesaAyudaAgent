@@ -4,7 +4,7 @@ from typing import Optional, List, Dict
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
-from core.config import MODEL_NAME, TEMPERATURE_ANALISIS, MANUALS_DIR, GEMINI_API_KEY
+from core.config import MODEL_NAME, TEMPERATURE_ANALISIS, GEMINI_API_KEY
 from core.logger import log
 
 class APIKeyPool:
@@ -129,8 +129,9 @@ class LLMClient:
     - Síntesis de secuencias diagnósticas (Episodios) con esquema AnalisisEpisodio.
     - Compatibilidad total con análisis de texto de pantalla y chat interactivo con RAG.
     """
-    def __init__(self):
+    def __init__(self, db=None):
         self.pool = APIKeyPool()
+        self.db = db
         self.model_name = MODEL_NAME
         self.embedding_model = "gemini-embedding-001"
         self.manuales_contexto = ""
@@ -150,19 +151,18 @@ class LLMClient:
                 log.warning(f"No se pudo crear la sesión de chat ({e}).")
                 self.chat_session = None
 
-    def cargar_manuales(self):
-        """Lee todos los archivos .txt de la carpeta Manuales_Base e inyecta su contenido."""
+    def cargar_manuales(self, db=None):
+        """Carga todos los manuales operativos directamente desde la base de datos SQLite vectorial."""
         self.manuales_contexto = ""
         try:
-            os.makedirs(MANUALS_DIR, exist_ok=True)
-            archivos = [f for f in os.listdir(MANUALS_DIR) if f.endswith(".txt")]
-            for arch in archivos:
-                ruta_completa = os.path.join(MANUALS_DIR, arch)
-                with open(ruta_completa, "r", encoding="utf-8") as f:
-                    self.manuales_contexto += f"\n--- MANUAL: {arch} ---\n{f.read()}\n"
-            log.info(f"Cargados {len(archivos)} manuales base desde {MANUALS_DIR}.")
+            from core.database import HybridVectorDB
+            target_db = db or self.db or HybridVectorDB()
+            manuales = target_db.get_all_manuales()
+            for m in manuales:
+                self.manuales_contexto += f"\n--- MANUAL: {m['titulo']} ({m.get('categoria', 'General')}) ---\n{m['contenido']}\n"
+            log.info(f"Cargados {len(manuales)} manuales operativos desde SQLite (memory_v3.db).")
         except Exception as e:
-            log.error(f"Error cargando manuales operativos: {e}")
+            log.error(f"Error cargando manuales operativos desde SQLite: {e}")
 
     def generar_embedding(self, texto: str) -> Optional[List[float]]:
         """

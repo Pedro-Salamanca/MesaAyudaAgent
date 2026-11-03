@@ -1,18 +1,16 @@
-import json
-import os
 from typing import Optional, List, Dict
 from rank_bm25 import BM25Okapi
-from core.config import CASES_DIR, UMBRAL_SIMILITUD_BM25
+from core.config import UMBRAL_SIMILITUD_BM25
 from core.database import HybridVectorDB
 from core.logger import log
 
 class MemorySearchEngine:
     """
     Motor de Búsqueda Híbrido (BM25Okapi + Base Vectorial SQLite).
-    Permite recuperar casos históricos tanto por palabras clave como por afinidad semántica.
+    Permite recuperar casos históricos tanto por palabras clave como por afinidad semántica,
+    operando al 100% desde la base de datos memory_v3.db.
     """
     def __init__(self, db: Optional[HybridVectorDB] = None):
-        self.cases_dir = CASES_DIR
         self.db = db or HybridVectorDB()
         self.corpus = []
         self.raw_cases = []
@@ -52,33 +50,7 @@ class MemorySearchEngine:
                 self.bm25 = BM25Okapi(self.corpus)
                 log.info(f"Índice BM25 cargado con {len(self.corpus)} casos desde SQLite.")
         except Exception as e:
-            log.warning(f"Fallo cargando BM25 desde SQLite ({e}), probando desde archivos JSON...")
-            self._load_from_json_files()
-
-    def _load_from_json_files(self):
-        """Fallback secundario para cargar directamente desde archivos JSON."""
-        if not os.path.exists(self.cases_dir):
-            return
-        try:
-            archivos = [f for f in os.listdir(self.cases_dir) if f.endswith('.json')]
-            for arch in archivos:
-                try:
-                    with open(os.path.join(self.cases_dir, arch), 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        texto_completo = (
-                            f"{data.get('window_title', '')} "
-                            f"{data.get('visual_context', '')} "
-                            f"{data.get('agent_suggestion', '')} "
-                            f"{data.get('action', '')}"
-                        ).lower()
-                        self.raw_cases.append(data)
-                        self.corpus.append(texto_completo.split())
-                except Exception:
-                    pass
-            if self.corpus:
-                self.bm25 = BM25Okapi(self.corpus)
-        except Exception as e:
-            log.error(f"Error cargando casos desde JSON: {e}")
+            log.error(f"Fallo cargando BM25 desde SQLite: {e}")
 
     def search(self, query: str, top_k: int = 3, query_vector: Optional[List[float]] = None) -> List[Dict]:
         """
