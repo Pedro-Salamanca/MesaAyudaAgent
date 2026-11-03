@@ -133,15 +133,23 @@ class MesaAyudaAgentApp:
         self.refresh_staging_ui()
         self.refresh_memory_ui()
 
-        # Hilo de procesamiento en segundo plano (worker)
-        self.worker_thread = threading.Thread(target=self._background_worker_loop, daemon=True)
-        self.worker_thread.start()
+        # Hilos en segundo plano (se inician de forma segura cuando mainloop esté activo)
+        self.worker_thread = None
+        self.vision_thread = None
 
-        # Hilo del ciclo visual
-        self.vision_thread = threading.Thread(target=self.vision_loop, daemon=True)
-        self.vision_thread.start()
+        log.info("Componentes de MesaAyudaAgent v3.2 preparados para iniciar.")
 
-        log.info("Agente MesaAyudaAgent v3.0 inicializado y en ejecución.")
+    def start_background_threads(self):
+        """Inicia los hilos en segundo plano una vez que la interfaz gráfica y su mainloop ya están activos."""
+        if not self.worker_thread or not self.worker_thread.is_alive():
+            self.worker_thread = threading.Thread(target=self._background_worker_loop, daemon=True)
+            self.worker_thread.start()
+
+        if not self.vision_thread or not self.vision_thread.is_alive():
+            self.vision_thread = threading.Thread(target=self.vision_loop, daemon=True)
+            self.vision_thread.start()
+
+        log.info("Agente MesaAyudaAgent v3.2: Hilos de visión y procesamiento iniciados con éxito.")
 
     # =========================================================================
     # REFRESCADO DE COMPONENTES UI
@@ -606,171 +614,176 @@ class MesaAyudaAgentApp:
         10. Revisa inactividad global de 30 min en 'Modo Solo Aprendizaje' para pasar a evaluación.
         """
         while True:
-            if not self.is_paused:
-                active_title = self.get_active_window_title()
+            try:
+                if not self.is_paused:
+                    active_title = self.get_active_window_title()
 
-                # PASO 1: Validación básica de ventana permitida
-                permitida, motivo_perm = self.pre_filter.is_window_allowed(active_title)
-                if not permitida:
-                    if "ventana propia del agente" in motivo_perm.lower():
-                        self.app.after(0, self.app.update_eye_output, "🛡️ REPOSO: Ventana del Agente en primer plano.\nMonitoreo visual activo esperando interacción en Artemis o herramientas de red.")
-                        self.app.after(0, self.app.update_inference_output, "Reposo: Agente en primer plano. Esperando ventana operativa.")
+                    # PASO 1: Validación básica de ventana permitida
+                    permitida, motivo_perm = self.pre_filter.is_window_allowed(active_title)
+                    if not permitida:
+                        if "ventana propia del agente" in motivo_perm.lower():
+                            self.app.after(0, self.app.update_eye_output, "🛡️ REPOSO: Ventana del Agente en primer plano.\nMonitoreo visual activo esperando interacción en Artemis o herramientas de red.")
+                            self.app.after(0, self.app.update_inference_output, "Reposo: Agente en primer plano. Esperando ventana operativa.")
+                        else:
+                            self.app.after(0, self.app.update_eye_output, f"🙈 Ventana excluida:\n[{active_title}]\nMotivo: {motivo_perm}")
+                            self.app.after(0, self.app.update_inference_output, f"Reposo: {motivo_perm}")
                     else:
-                        self.app.after(0, self.app.update_eye_output, f"🙈 Ventana excluida:\n[{active_title}]\nMotivo: {motivo_perm}")
-                        self.app.after(0, self.app.update_inference_output, f"Reposo: {motivo_perm}")
-                else:
-                    # PASO 2: Captura de pantalla con recorte de Artemis
-                    raw_text = self.vision.capture_and_read(active_title)
-                    current_img = self.vision.last_image
+                        # PASO 2: Captura de pantalla con recorte de Artemis
+                        raw_text = self.vision.capture_and_read(active_title)
+                        current_img = self.vision.last_image
 
-                    # PASO 2.1: Pre-filtro de cambio de píxeles y detección de cambio de ventana
-                    window_changed = (active_title != getattr(self, "_last_seen_title", ""))
-                    self._last_seen_title = active_title
+                        # PASO 2.1: Pre-filtro de cambio de píxeles y detección de cambio de ventana
+                        window_changed = (active_title != getattr(self, "_last_seen_title", ""))
+                        self._last_seen_title = active_title
 
-                    if window_changed:
-                        # Si el operador cambió de ventana, forzar evaluación inmediata
-                        has_pixel_change = True
-                    else:
-                        has_pixel_change = self.pre_filter.has_significant_pixel_change(current_img, threshold=0.02)
+                        if window_changed:
+                            # Si el operador cambió de ventana, forzar evaluación inmediata
+                            has_pixel_change = True
+                        else:
+                            has_pixel_change = self.pre_filter.has_significant_pixel_change(current_img, threshold=0.02)
 
-                    if not has_pixel_change and not raw_text.startswith("ERROR_OCR:"):
-                        # Pantalla estática en la misma ventana: ahorro del 100% de llamadas a IA
-                        pass
-                    else:
-                        # PASO 3: Blindaje de Seguridad contra Pantallas de Login
-                        es_login, motivo_login = self.pre_filter.is_login_or_forbidden(active_title, raw_text)
-                        if es_login:
-                            self.last_valid_image = None
-                            self.last_valid_ocr = "Contexto omitido por seguridad (Login detectado)."
-                            self.app.after(0, self.app.update_eye_output, f"🔒 PANTALLA DE LOGIN DESCARTADA\n\n{motivo_login}")
-                            self.app.after(0, self.app.update_inference_output, "Seguridad activa: Pantalla de login descartada automáticamente.")
-                            log.info(f"Pantalla descartada por seguridad: {motivo_login}")
-                        elif raw_text.startswith("ERROR_OCR:"):
-                            self.app.after(0, self.app.update_eye_output, f"⚠️ Fallo OCR:\n{raw_text}")
-                        elif len(raw_text.strip()) > LONGITUD_MINIMA_OCR:
-                            # PASO 4: Pre-filtro Anti-Spam de texto duplicado (>92%)
-                            is_dup = self.pre_filter.is_duplicate_text(raw_text, threshold=0.92)
+                        if not has_pixel_change and not raw_text.startswith("ERROR_OCR:"):
+                            # Pantalla estática en la misma ventana: ahorro del 100% de llamadas a IA
+                            pass
+                        else:
+                            # PASO 3: Blindaje de Seguridad contra Pantallas de Login
+                            es_login, motivo_login = self.pre_filter.is_login_or_forbidden(active_title, raw_text)
+                            if es_login:
+                                self.last_valid_image = None
+                                self.last_valid_ocr = "Contexto omitido por seguridad (Login detectado)."
+                                self.app.after(0, self.app.update_eye_output, f"🔒 PANTALLA DE LOGIN DESCARTADA\n\n{motivo_login}")
+                                self.app.after(0, self.app.update_inference_output, "Seguridad activa: Pantalla de login descartada automáticamente.")
+                                log.info(f"Pantalla descartada por seguridad: {motivo_login}")
+                            elif raw_text.startswith("ERROR_OCR:"):
+                                self.app.after(0, self.app.update_eye_output, f"⚠️ Fallo OCR:\n{raw_text}")
+                            elif len(raw_text.strip()) > LONGITUD_MINIMA_OCR:
+                                # PASO 4: Pre-filtro Anti-Spam de texto duplicado (>92%)
+                                is_dup = self.pre_filter.is_duplicate_text(raw_text, threshold=0.92)
                             
-                            self.last_valid_ocr = raw_text
-                            self.last_valid_image = current_img
-                            self.last_valid_title = active_title
+                                self.last_valid_ocr = raw_text
+                                self.last_valid_image = current_img
+                                self.last_valid_title = active_title
 
-                            # PASO 5: Extracción de Anclas
-                            anchors = self.pre_filter.extract_anchors(raw_text, active_title)
+                                # PASO 5: Extracción de Anclas
+                                anchors = self.pre_filter.extract_anchors(raw_text, active_title)
 
-                            # PASO 6: Enrutamiento Inteligente Concurrente (Nueva cubeta o caso en curso)
-                            target_bucket, es_nuevo_paso, needs_block_summary = self.bucket_manager.route_capture(
-                                active_title, raw_text, anchors
-                            )
-
-                            if target_bucket is None:
-                                eye_text = (
-                                    f"👁️ VENTANA OBSERVADA: {active_title}\n"
-                                    f"ESTADO: ⏸️ En espera de atención técnica\n"
-                                    f"DETALLE: Abre un chat con un técnico en Artemis o selecciona una cubeta activa en la barra superior para registrar diagnósticos en Winbox/PuTTY/MobaXterm.\n"
-                                    f"──────────────────────────────────────────────────\n"
-                                    f"TEXTO OCR EXTRAÍDO ({len(raw_text)} caracteres):\n"
-                                    f"{raw_text.strip()}"
+                                # PASO 6: Enrutamiento Inteligente Concurrente (Nueva cubeta o caso en curso)
+                                target_bucket, es_nuevo_paso, needs_block_summary = self.bucket_manager.route_capture(
+                                    active_title, raw_text, anchors
                                 )
-                                self.app.after(0, self.app.update_eye_output, eye_text)
-                                self.app.after(0, self.app.update_inference_output, "Esperando inicio de chat de soporte o selección de cubeta en curso.")
+
+                                if target_bucket is None:
+                                    eye_text = (
+                                        f"👁️ VENTANA OBSERVADA: {active_title}\n"
+                                        f"ESTADO: ⏸️ En espera de atención técnica\n"
+                                        f"DETALLE: Abre un chat con un técnico en Artemis o selecciona una cubeta activa en la barra superior para registrar diagnósticos en Winbox/PuTTY/MobaXterm.\n"
+                                        f"──────────────────────────────────────────────────\n"
+                                        f"TEXTO OCR EXTRAÍDO ({len(raw_text)} caracteres):\n"
+                                        f"{raw_text.strip()}"
+                                    )
+                                    self.app.after(0, self.app.update_eye_output, eye_text)
+                                    self.app.after(0, self.app.update_inference_output, "Esperando inicio de chat de soporte o selección de cubeta en curso.")
+                                else:
+                                    self._refresh_pills_ui()
+
+                                    # Si se acumularon 8 pasos, programar resumen de bloque en segundo plano
+                                    if needs_block_summary:
+                                        self.bg_tasks_queue.put({
+                                            "type": "compress_block",
+                                            "bucket": target_bucket,
+                                            "steps": [s.to_dict() for s in target_bucket.steps]
+                                        })
+
+                                    pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
+                                    cun_str = target_bucket.id_servicio_cun or "Sin CUN"
+                                    sitio_str = target_bucket.codigo_sitio or "Sin Sitio"
+                                    herramientas_str = ", ".join(target_bucket.herramientas_usadas) if target_bucket.herramientas_usadas else "General"
+
+                                    estado_str = "⏸️ Pantalla sin cambios" if is_dup else "✅ Paso registrado"
+                                    eye_text = (
+                                        f"👁️ VENTANA: {active_title}\n"
+                                        f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
+                                        f"ESTADO: {estado_str} ({pasos_info}) | HERRAMIENTAS: {herramientas_str}\n"
+                                        f"──────────────────────────────────────────────────\n"
+                                        f"TEXTO OCR EN VIVO ({len(raw_text)} caracteres):\n"
+                                        f"{raw_text.strip()}"
+                                    )
+                                    self.app.after(0, self.app.update_eye_output, eye_text)
+
+                                    # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
+                                    if self.is_learning_mode:
+                                        self.is_asking = False
+                                        self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
+                                    elif not self.is_asking:
+                                        self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
+                                        analisis = self.llm.analizar_texto_pantalla(raw_text)
+
+                                        if analisis and analisis.es_problema_tecnico_real:
+                                            sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
+                                            if sig != self.last_problem_signature:
+                                                self.last_problem_signature = sig
+                                                self.is_asking = True
+                                                self.current_visual_context = analisis.descripcion_problema
+                                                self.current_agent_suggestion = analisis.accion_sugerida
+
+                                                inf_text = (
+                                                    f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
+                                                    f"Problema: {analisis.descripcion_problema}\n"
+                                                    f"Sugerencia: {analisis.accion_sugerida}\n"
+                                                    f"Confianza: {analisis.nivel_confianza}\n\n"
+                                                    f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
+                                                )
+                                                self.app.after(0, self.app.set_state, "asking")
+                                                self.app.after(0, self.app.update_inference_output, inf_text)
+                                                self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
+                                            else:
+                                                self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
+                                        else:
+                                            self.app.after(0, self.app.update_inference_output, f"Observando atención de {target_bucket.tecnico_campo} (Sin novedades críticas).")
                             else:
-                                self._refresh_pills_ui()
-
-                                # Si se acumularon 8 pasos, programar resumen de bloque en segundo plano
-                                if needs_block_summary:
-                                    self.bg_tasks_queue.put({
-                                        "type": "compress_block",
-                                        "bucket": target_bucket,
-                                        "steps": [s.to_dict() for s in target_bucket.steps]
-                                    })
-
-                                pasos_info = f"{len(target_bucket.steps)}/8 en bloque ({target_bucket.total_steps_lifetime} acumulados)"
-                                cun_str = target_bucket.id_servicio_cun or "Sin CUN"
-                                sitio_str = target_bucket.codigo_sitio or "Sin Sitio"
-                                herramientas_str = ", ".join(target_bucket.herramientas_usadas) if target_bucket.herramientas_usadas else "General"
-
-                                estado_str = "⏸️ Pantalla sin cambios" if is_dup else "✅ Paso registrado"
                                 eye_text = (
                                     f"👁️ VENTANA: {active_title}\n"
-                                    f"CUBETA ACTIVA: [{target_bucket.tecnico_campo}] | CUN: {cun_str} | NODO: {sitio_str}\n"
-                                    f"ESTADO: {estado_str} ({pasos_info}) | HERRAMIENTAS: {herramientas_str}\n"
+                                    f"ESTADO: ⏸️ En reposo (Contenido técnico mínimo insuficiente para análisis: {len(raw_text.strip())} caracteres detectados).\n"
                                     f"──────────────────────────────────────────────────\n"
-                                    f"TEXTO OCR EN VIVO ({len(raw_text)} caracteres):\n"
-                                    f"{raw_text.strip()}"
+                                    f"TEXTO DETECTADO:\n{raw_text.strip() if raw_text.strip() else '(Sin texto legible)'}"
                                 )
                                 self.app.after(0, self.app.update_eye_output, eye_text)
 
-                                # En modo Solo Aprendizaje: Cero interrupciones, cero llamadas a inferencia en vivo, cero 'Asking'
-                                if self.is_learning_mode:
-                                    self.is_asking = False
-                                    self.app.after(0, self.app.update_inference_output, f"🎓 Modo Solo Aprendizaje activo: Capturando en segundo plano ({target_bucket.tecnico_campo} | {target_bucket.total_steps_lifetime} pasos acumulados)...")
-                                elif not self.is_asking:
-                                    self.app.after(0, self.app.update_inference_output, f"Analizando con Gemini (Cubeta: {target_bucket.tecnico_campo})...")
-                                    analisis = self.llm.analizar_texto_pantalla(raw_text)
-
-                                    if analisis and analisis.es_problema_tecnico_real:
-                                        sig = f"{target_bucket.tecnico_campo}_{analisis.descripcion_problema}"
-                                        if sig != self.last_problem_signature:
-                                            self.last_problem_signature = sig
-                                            self.is_asking = True
-                                            self.current_visual_context = analisis.descripcion_problema
-                                            self.current_agent_suggestion = analisis.accion_sugerida
-
-                                            inf_text = (
-                                                f"¡Novedad detectada para {target_bucket.tecnico_campo}!\n"
-                                                f"Problema: {analisis.descripcion_problema}\n"
-                                                f"Sugerencia: {analisis.accion_sugerida}\n"
-                                                f"Confianza: {analisis.nivel_confianza}\n\n"
-                                                f"Nota: Presiona 'Aprobar Sugerencia' para validarla, o '🏁 Finalizar Caso' para cerrar la cubeta."
-                                            )
-                                            self.app.after(0, self.app.set_state, "asking")
-                                            self.app.after(0, self.app.update_inference_output, inf_text)
-                                            self.app.after(0, self.app.append_chat, "Agente", f"🚨 Detecté una novedad con {target_bucket.tecnico_campo}: {analisis.descripcion_problema}.\nMi sugerencia es: '{analisis.accion_sugerida}'.")
-                                        else:
-                                            self.app.after(0, self.app.update_inference_output, f"Actividad normal en {target_bucket.tecnico_campo}. Observando...")
-                                    else:
-                                        self.app.after(0, self.app.update_inference_output, f"Observando atención de {target_bucket.tecnico_campo} (Sin novedades críticas).")
-                        else:
-                            eye_text = (
-                                f"👁️ VENTANA: {active_title}\n"
-                                f"ESTADO: ⏸️ En reposo (Contenido técnico mínimo insuficiente para análisis: {len(raw_text.strip())} caracteres detectados).\n"
-                                f"──────────────────────────────────────────────────\n"
-                                f"TEXTO DETECTADO:\n{raw_text.strip() if raw_text.strip() else '(Sin texto legible)'}"
-                            )
-                            self.app.after(0, self.app.update_eye_output, eye_text)
-
-            # =================================================================
-            # TEMPORIZADORES DE AUTO-CIERRE E INACTIVIDAD
-            # =================================================================
-            # 1. Cierre individual de cubeta por 10 minutos de inactividad
-            expired_buckets = self.bucket_manager.check_expired_buckets()
-            for exp_b in expired_buckets:
-                log.info(f"Cubeta [{exp_b.bucket_id}] superó 10 min de inactividad. Moviendo a staging...")
-                closed_b = self.bucket_manager.close_and_extract_bucket(exp_b.bucket_id)
-                if closed_b:
-                    self.bg_tasks_queue.put({
-                        "type": "auto_close_staging",
-                        "bucket": closed_b
-                    })
-
-            # 2. Cierre global del Modo Solo Aprendizaje tras 30 minutos de inactividad
-            if self.is_learning_mode and self.bucket_manager.check_global_inactivity():
-                log.info("30 minutos de inactividad global detectados en Modo Solo Aprendizaje. Transicionando a evaluación...")
-                self.is_learning_mode = False
-                self.is_paused = True
-                self.app.after(0, self.app.set_state, "paused")
-                self.app.after(0, self.app.switch_to_tab, "📋 Evaluar Aprendizaje")
-                self.app.after(0, self.app.append_chat, "Agente", "⏰ 30 minutos de inactividad global completados. El Modo Solo Aprendizaje se ha cerrado automáticamente. Por favor revisa las tarjetas en '📋 Evaluar Aprendizaje'.")
-                
-                # Cerrar cualquier cubeta remanente hacia staging
-                for b_id in list(self.bucket_manager.active_buckets.keys()):
-                    rem_b = self.bucket_manager.close_and_extract_bucket(b_id)
-                    if rem_b:
+                # =================================================================
+                # TEMPORIZADORES DE AUTO-CIERRE E INACTIVIDAD
+                # =================================================================
+                # 1. Cierre individual de cubeta por 10 minutos de inactividad
+                expired_buckets = self.bucket_manager.check_expired_buckets()
+                for exp_b in expired_buckets:
+                    log.info(f"Cubeta [{exp_b.bucket_id}] superó 10 min de inactividad. Moviendo a staging...")
+                    closed_b = self.bucket_manager.close_and_extract_bucket(exp_b.bucket_id)
+                    if closed_b:
                         self.bg_tasks_queue.put({
                             "type": "auto_close_staging",
-                            "bucket": rem_b
+                            "bucket": closed_b
                         })
+
+                # 2. Cierre global del Modo Solo Aprendizaje tras 30 minutos de inactividad
+                if self.is_learning_mode and self.bucket_manager.check_global_inactivity():
+                    log.info("30 minutos de inactividad global detectados en Modo Solo Aprendizaje. Transicionando a evaluación...")
+                    self.is_learning_mode = False
+                    self.is_paused = True
+                    self.app.after(0, self.app.set_state, "paused")
+                    self.app.after(0, self.app.switch_to_tab, "📋 Evaluar Aprendizaje")
+                    self.app.after(0, self.app.append_chat, "Agente", "⏰ 30 minutos de inactividad global completados. El Modo Solo Aprendizaje se ha cerrado automáticamente. Por favor revisa las tarjetas en '📋 Evaluar Aprendizaje'.")
+                
+                    # Cerrar cualquier cubeta remanente hacia staging
+                    for b_id in list(self.bucket_manager.active_buckets.keys()):
+                        rem_b = self.bucket_manager.close_and_extract_bucket(b_id)
+                        if rem_b:
+                            self.bg_tasks_queue.put({
+                                "type": "auto_close_staging",
+                                "bucket": rem_b
+                            })
+
+            except Exception as e:
+                log.error(f"Error recuperable en ciclo de visión: {e}")
+                time.sleep(1.0)
 
             time.sleep(INTERVALO_VISION_SEGUNDOS)
 
@@ -778,6 +791,8 @@ class MesaAyudaAgentApp:
         """Inicia el loop principal de la interfaz gráfica CustomTkinter."""
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
+        # Programar inicio seguro de hilos cuando mainloop ya esté activo (evita RuntimeError en Python 3.14)
+        self.app.after(300, self.start_background_threads)
         self.app.mainloop()
 
 if __name__ == "__main__":

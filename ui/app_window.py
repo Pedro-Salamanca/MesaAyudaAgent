@@ -1112,6 +1112,18 @@ class AppWindow(ctk.CTk):
         if self.discard_staging_callback:
             self.discard_staging_callback(id_cubeta)
 
+    def after(self, ms, func=None, *args):
+        """
+        Despacho seguro de eventos diferidos a Tkinter evitando RuntimeError en Python 3.14.
+        Captura de forma controlada si un hilo llama a .after() antes o durante la finalización del mainloop.
+        """
+        try:
+            return super().after(ms, func, *args)
+        except RuntimeError as e:
+            if "main thread is not in main loop" in str(e):
+                return None
+            raise
+
 if __name__ == "__main__":
     ctk.set_appearance_mode("Dark")
     app = AppWindow()
