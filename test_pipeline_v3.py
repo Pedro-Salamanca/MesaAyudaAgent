@@ -160,11 +160,26 @@ def test_bucket_manager_and_anti_mixing():
     assert len(b1.steps) == 3, "Cubeta 1 no debió recibir capturas de sitios ajenos"
     print("✓ Grafana de sitio ajeno (CMAZ-T4) descartado sin contaminar la cubeta activa ni crear fantasmas")
 
-    # 2.3 Captura en app ajena / irrelevante (Explorador de Archivos) -> DEBE ser descartada
+    # 2.3 Zabbix del MISMO sitio (Edge / Switch por código de 4 caracteres ej: RIVA) -> Debe asociarse
+    anchors_zabbix_mismo = {"herramienta_origen": "Zabbix", "codigo_sitio": "RIVA"}
+    b_zab_ok, _, _ = bm.route_capture("Zabbix - Monitoring Hosts - Edge", "Hosts en RIVA: Switch-Piso-1 UP", anchors_zabbix_mismo)
+    assert b_zab_ok is not None and b_zab_ok.bucket_id == b1.bucket_id
+    assert len(b1.steps) == 4, "La cubeta de Carlos Gómez debe tener 4 pasos tras consulta en Zabbix"
+    print("✓ Zabbix del mismo sitio (RIVA) asociado con éxito como evidencia de Edge a la cubeta activa")
+
+    # 2.4 Zabbix de sitio ajeno (ej: COES) -> Debe ser descartado
+    anchors_zabbix_ajeno = {"herramienta_origen": "Zabbix", "codigo_sitio": "COES"}
+    b_zab_ajeno, _, _ = bm.route_capture("Zabbix - Monitoring Hosts - Edge", "Hosts en COES", anchors_zabbix_ajeno)
+    assert b_zab_ajeno is None, "Zabbix de sitio ajeno debió ser descartado sin crear cubetas fantasmas"
+    assert len(bm.active_buckets) == 1, "No debe haberse creado ninguna cubeta fantasma"
+    assert len(b1.steps) == 4, "Cubeta 1 no debió recibir capturas de Zabbix de otro sitio"
+    print("✓ Zabbix de sitio ajeno (COES) descartado sin contaminar la cubeta activa")
+
+    # 2.5 Captura en app ajena / irrelevante (Explorador de Archivos) -> DEBE ser descartada
     anchors_vacio = {"herramienta_origen": "General"}
     b_none, _, _ = bm.route_capture("Explorador de Archivos", "Texto irrelevante sin anclas", anchors_vacio)
     assert b_none is None, "Captura sin ancla y en app no técnica debió ser descartada (None)"
-    assert len(b1.steps) == 3, "Cubeta 1 no debió recibir capturas de apps ajenas"
+    assert len(b1.steps) == 4, "Cubeta 1 no debió recibir capturas de apps ajenas"
     print("✓ Captura en app ajena (Explorador de Archivos) descartada sin ensuciar la cubeta activa")
 
     # 3. Enrutar captura 2: Técnico DIFERENTE (María Pérez) en Artemis -> GÉNESIS DE CUBETA 2
@@ -182,8 +197,8 @@ def test_bucket_manager_and_anti_mixing():
     print(f"✓ Cubeta 2 creada independientemente: {b2.bucket_id} ({b2.tecnico_campo}). CERO mezclas!")
 
     # 4. Probar acumulación de 8 pasos y compresión en bloque
-    for i in range(5): # Sumando a los 3 que ya tiene -> 8 pasos
-        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+4}")
+    for i in range(4): # Sumando a los 4 que ya tiene -> 8 pasos
+        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+5}")
     assert len(b1.steps) == 8, f"Se esperaban 8 pasos, hay {len(b1.steps)}"
     assert needs_comp == True, "Al llegar a 8 pasos debe activar needs_compression=True"
 
