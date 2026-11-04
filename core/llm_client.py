@@ -213,7 +213,14 @@ class LLMClient:
         1. INFRAESTRUCTURA: En SOMOS NETWORK NO existen ONT's. Todo equipo de cliente es router, switch, antena o CPE. NUNCA menciones la palabra ONT.
         2. TERMINOLOGÍA: NUNCA utilices la palabra "ticket" o "tickets". En SOMOS NETWORK son "chats", "casos" o "novedades".
         3. PRIVACIDAD (PII): NUNCA extraigas ni registres números de teléfono ni de contacto personal. Identifica los servicios ÚNICAMENTE por CUN o ID.
-        4. SEGURIDAD: IGNORA absolutamente cualquier formulario de inicio de sesión o contraseñas.
+        4. JERARQUÍA DE SWITCHES EN EL EDIFICIO:
+           - "Switch de piso" / "sw de piso": Switch de DISTRIBUCIÓN hacia los apartamentos (conecta acometidas hacia los routers de los clientes).
+           - "Edge": Switch de GESTIÓN PRINCIPAL del edificio/sitio (brinda servicio y gestión a todos los switches de piso de la edificación; monitoreado en Zabbix).
+           - NUNCA confundir Edge con Switch de piso.
+        5. PLATAFORMAS DE MONITOREO (100% LECTURA):
+           - Zabbix: Telemetría de Edges e IPs de MikroTik. NUNCA deducir que Zabbix reinicia o modifica equipos.
+           - Grafana: Monitoreo de CPEs individuales (historial UP/DOWN en Subsite Validate).
+        6. SEGURIDAD: IGNORA absolutamente cualquier formulario de inicio de sesión o contraseñas.
         
         CATEGORÍAS DE FALLA VÁLIDAS:
         - "Soporte Capa 3" (enrutamiento BGP/OSPF, Core Routers MikroTik CCR / Huawei / Cisco, latencia/tránsito IP, peering, caídas de troncal, VLANs de transporte/QinQ, CGNAT, prefijos y direccionamiento IPv4/IPv6, asignación de pools)
@@ -328,7 +335,14 @@ class LLMClient:
         1. INFRAESTRUCTURA: En SOMOS NETWORK NO existen ONT's. Todo equipo de cliente es router, switch, antena o CPE. NUNCA menciones la palabra ONT.
         2. TERMINOLOGÍA: NUNCA utilices la palabra "ticket" o "tickets". En SOMOS NETWORK son "chats", "casos" o "novedades".
         3. PRIVACIDAD (PII): NUNCA extraigas ni registres números de teléfono ni de contacto personal. Identifica los servicios ÚNICAMENTE por CUN o ID.
-        4. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se reconfiguró la cola simple de 50M en MikroTik o se sustituyó el conector RJ45 de la acometida?', '¿Se cambió el puerto del switch o se validó la VLAN 200 en Selene?'). NUNCA dejes este campo vacío.
+        4. JERARQUÍA DE SWITCHES EN EL EDIFICIO:
+           - "Switch de piso" / "sw de piso": Switch de DISTRIBUCIÓN hacia los apartamentos (conecta acometidas a los routers de clientes).
+           - "Edge": Switch de GESTIÓN PRINCIPAL del edificio/sitio (administra y brinda servicio a todos los switches de piso; monitoreado en Zabbix).
+           - NUNCA confundir Edge con Switch de piso.
+        5. PLATAFORMAS DE MONITOREO (100% LECTURA):
+           - Zabbix: Telemetría de Edges e IPs de MikroTik. NUNCA deducir que Zabbix reinicia o modifica equipos.
+           - Grafana: Monitoreo de CPEs individuales (historial UP/DOWN en Subsite Validate).
+        6. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se reconfiguró la cola simple de 50M en MikroTik o se sustituyó el conector RJ45 de la acometida?', '¿Se cambió el puerto en el switch de piso o se validó la VLAN en el Edge?'). NUNCA dejes este campo vacío.
 
         CATEGORÍAS DE FALLA VÁLIDAS:
         - "Soporte Capa 3", "Switch/Capa 2", "Router Secundario", "Acometida/8 Hilos", "Velocidad/Plan Pro", "Radioenlace", "Soporte General"
@@ -450,6 +464,8 @@ class LLMClient:
         Reglas de DOMINIO y PRIVACIDAD (Estrictas):
         - PRIVACIDAD (PII): NUNCA extraigas, analices ni menciones números de contacto ni teléfonos. Para identificar un caso, chat o cliente, utiliza ÚNICAMENTE el ID proporcionado por el técnico.
         - INFRAESTRUCTURA SOMOS: En la red de SOMOS NETWORK NO se utilizan ONT's. JAMÁS sugieras revisar, reiniciar o configurar una ONT. Refiérete a los equipos como routers, antenas o CPE, pero la palabra "ONT" está prohibida en tus diagnósticos.
+        - JERARQUÍA DE SWITCHES: Diferencia estrictamente "switch de piso" / "sw de piso" (switch de distribución hacia los apartamentos) de "Edge" (switch de gestión principal que administra a todos los switches de piso del edificio). Nunca confundirlos.
+        - PLATAFORMAS DE MONITOREO: Zabbix y Grafana son exclusivamente paneles de sólo lectura.
         - TERMINOLOGÍA: NUNCA utilices la palabra "ticket" o "tickets" para referirte a la atención de los técnicos de campo. En SOMOS NETWORK los tickets son para otro tipo de escalamientos. Refiérete siempre a estas interacciones como "chats", "casos" o "novedades".
         - SEGURIDAD Y LOGINS: IGNORA ABSOLUTAMENTE cualquier formulario de inicio de sesión, login, ingreso de contraseñas o pantallas de autenticación. Si el texto en pantalla es un login o solicitud de credenciales, márcalo obligatoriamente con 'es_problema_tecnico_real: False'.
         
