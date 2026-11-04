@@ -116,7 +116,14 @@ def test_bucket_manager_and_anti_mixing():
     bm = BucketManager(max_concurrent=5, ttl_bucket_minutes=10, global_inactivity_minutes=30)
     bm.active_buckets.clear()
 
-    # 1. Enrutar captura 1: Carlos Gómez en Artemis
+    # 0. Test: Herramienta de red abierta SIN chat en Artemis -> CERO cubetas fantasmas
+    anchors_winbox_pre = {"herramienta_origen": "WinBox"}
+    b_pre, _, _ = bm.route_capture("Winbox v6.49 - MikroTik", "Simple Queue 50M", anchors_winbox_pre)
+    assert b_pre is None, "WinBox sin chat previo en Artemis NO debe crear cubetas fantasmas"
+    assert len(bm.active_buckets) == 0, "No debe haber cubetas activas aún"
+    print("✓ Herramienta abierta sin chat previo (WinBox) descartada pacíficamente (CERO cubetas fantasmas)")
+
+    # 1. Enrutar captura 1: Carlos Gómez en Artemis -> GÉNESIS OFICIAL DE CUBETA 1
     anchors_1 = {
         "tecnico_campo": "Carlos Gómez",
         "id_servicio_cun": "45102",
@@ -127,7 +134,7 @@ def test_bucket_manager_and_anti_mixing():
     assert b1 is not None, "Debe crear cubeta para Carlos Gómez"
     assert b1.tecnico_campo == "Carlos Gómez"
     assert len(bm.active_buckets) == 1
-    print(f"✓ Cubeta 1 creada: {b1.bucket_id} ({b1.tecnico_campo})")
+    print(f"✓ Cubeta 1 creada desde Artemis: {b1.bucket_id} ({b1.tecnico_campo})")
 
     # 2. Captura en herramienta de red (WinBox, PuTTY) sin repetir ancla -> DEBE atribuirse a la cubeta en curso
     bm.set_focused_bucket(b1.bucket_id)
@@ -138,14 +145,29 @@ def test_bucket_manager_and_anti_mixing():
     assert len(b1.steps) == 2, "La cubeta de Carlos Gómez debe tener 2 pasos ahora"
     print("✓ Captura de herramienta diagnóstica (WinBox) atribuida con éxito al caso en curso")
 
-    # 2.1 Captura en app ajena / irrelevante (Explorador de Archivos) -> DEBE ser descartada
+    # 2.1 Grafana del MISMO sitio -> Debe asociarse como evidencia de caídas
+    anchors_grafana_mismo = {"herramienta_origen": "Grafana", "codigo_sitio": "SOMOS-MDE-RIVA-T4"}
+    b_graf_ok, _, _ = bm.route_capture("CPEs Somos - SAC - Dashboards - Grafana", "Status RIVA-T4 Down/UP", anchors_grafana_mismo)
+    assert b_graf_ok is not None and b_graf_ok.bucket_id == b1.bucket_id
+    assert len(b1.steps) == 3, "La cubeta de Carlos Gómez debe tener 3 pasos con Grafana"
+    print("✓ Grafana del mismo sitio asociado con éxito como evidencia a la cubeta activa")
+
+    # 2.2 Grafana de un SITIO AJENO (ej: CMAZ-T4) -> Debe ser descartado (NO crear cubeta fantasma y NO ensuciar a Carlos Gómez)
+    anchors_grafana_ajeno = {"herramienta_origen": "Grafana", "codigo_sitio": "SOMOS-CMAZ-T4"}
+    b_graf_ajeno, _, _ = bm.route_capture("CPEs Somos - SAC - Dashboards - Grafana", "Status CMAZ-T4 Down/UP", anchors_grafana_ajeno)
+    assert b_graf_ajeno is None, "Grafana de sitio ajeno debió ser descartado para no mezclar ni crear cubetas fantasmas"
+    assert len(bm.active_buckets) == 1, "No debe haberse creado ninguna cubeta fantasma"
+    assert len(b1.steps) == 3, "Cubeta 1 no debió recibir capturas de sitios ajenos"
+    print("✓ Grafana de sitio ajeno (CMAZ-T4) descartado sin contaminar la cubeta activa ni crear fantasmas")
+
+    # 2.3 Captura en app ajena / irrelevante (Explorador de Archivos) -> DEBE ser descartada
     anchors_vacio = {"herramienta_origen": "General"}
     b_none, _, _ = bm.route_capture("Explorador de Archivos", "Texto irrelevante sin anclas", anchors_vacio)
     assert b_none is None, "Captura sin ancla y en app no técnica debió ser descartada (None)"
-    assert len(b1.steps) == 2, "Cubeta 1 no debió recibir capturas de apps ajenas"
+    assert len(b1.steps) == 3, "Cubeta 1 no debió recibir capturas de apps ajenas"
     print("✓ Captura en app ajena (Explorador de Archivos) descartada sin ensuciar la cubeta activa")
 
-    # 3. Enrutar captura 2: Técnico DIFERENTE (María Pérez) -> Debe crear NUEVA cubeta, NO mezclar
+    # 3. Enrutar captura 2: Técnico DIFERENTE (María Pérez) en Artemis -> GÉNESIS DE CUBETA 2
     anchors_2 = {
         "tecnico_campo": "María Pérez",
         "id_servicio_cun": "88990",
@@ -160,8 +182,8 @@ def test_bucket_manager_and_anti_mixing():
     print(f"✓ Cubeta 2 creada independientemente: {b2.bucket_id} ({b2.tecnico_campo}). CERO mezclas!")
 
     # 4. Probar acumulación de 8 pasos y compresión en bloque
-    for i in range(6): # Sumando a los 2 que ya tiene -> 8 pasos
-        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+3}")
+    for i in range(5): # Sumando a los 3 que ya tiene -> 8 pasos
+        step, needs_comp = b1.add_step("WinBox", "WinBox", f"Configurando paso {i+4}")
     assert len(b1.steps) == 8, f"Se esperaban 8 pasos, hay {len(b1.steps)}"
     assert needs_comp == True, "Al llegar a 8 pasos debe activar needs_compression=True"
 

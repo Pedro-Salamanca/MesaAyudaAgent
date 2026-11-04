@@ -300,38 +300,60 @@ class BucketManager:
             target_bucket.update_anchors(anchors)
             self.current_focused_bucket_id = target_bucket.bucket_id
         else:
-            # 3. Si no coincidió pero trae ancla nueva identificable, creamos una cubeta nueva
+            # 3. GÉNESIS DE CUBETAS: ÚNICAMENTE DESDE CANALES DE ATENCIÓN (Artemis / Selene)
+            # Solo una conversación real en Artemis/Selene puede engendrar una nueva cubeta.
+            tool_name = (anchors.get("herramienta_origen") or "").lower()
+            w_low = window_title.lower()
+            o_low = (ocr_text or "").lower()
+
+            es_canal_atencion = (
+                tool_name in ["artemis", "selene"] or
+                any(k in w_low for k in ["artemis", "selene", "conversations"]) or
+                any(k in o_low for k in ["cola asignada", "mesa de ayuda técnicos", "admin.somosinternet.com", "cun:"])
+            )
+
             has_new_identity = bool(anchors.get("tecnico_campo") or anchors.get("id_servicio_cun") or anchors.get("codigo_sitio"))
-            if has_new_identity:
+
+            if es_canal_atencion and has_new_identity:
                 target_bucket = self._create_new_bucket(anchors)
             else:
-                # 4. ATRIBUCIÓN CONTINUA AL CASO EN CURSO (Herramientas técnicas y scroll de chat):
-                # Si no trae ancla nueva pero hay una cubeta activa en foco (o una única cubeta activa):
+                # 4. ATRIBUCIÓN CONTINUA AL CASO EN CURSO (Herramientas técnicas y de diagnóstico):
+                # Si no es un nuevo chat en Artemis, buscamos si hay una cubeta activa en foco
                 focused_b = self.get_focused_bucket()
                 
                 # Lista estricta de herramientas técnicas y diagnósticas reconocidas
                 HERRAMIENTAS_TECNICAS = [
                     "winbox", "putty", "mobaxterm", "moba", "zabbix", "selene", 
                     "viloliving", "openwisp", "terminal", "powershell", "cmd",
-                    "artemis", "somos", "mikrotik", "sheets", "spreadsheet"
+                    "artemis", "somos", "mikrotik", "sheets", "spreadsheet", "grafana"
                 ]
-                w_low = window_title.lower()
                 t_name = (anchors.get("herramienta_origen") or "").lower()
                 es_herramienta_tecnica = any(h in w_low or h in t_name for h in HERRAMIENTAS_TECNICAS)
 
                 if focused_b and focused_b.status == "active" and es_herramienta_tecnica:
-                    # Verificar que NO haya conflicto duro con otro técnico distinto
+                    # 4.1 Protección contra conflicto duro de técnico
                     in_tec = (anchors.get("tecnico_campo") or "").strip()
                     if in_tec and focused_b.tecnico_campo != "Técnico Desconocido":
                         if in_tec.lower() not in focused_b.tecnico_campo.lower() and focused_b.tecnico_campo.lower() not in in_tec.lower():
                             log.info(f"Conflicto de técnico detectado ('{in_tec}' vs '{focused_b.tecnico_campo}'). Descartando para no mezclar.")
                             return None, False, False
 
+                    # 4.2 Protección contra conflicto duro de sitio en herramientas de monitoreo (Grafana / Zabbix)
+                    in_sitio = (anchors.get("codigo_sitio") or "").strip()
+                    es_monitoreo = any(m in w_low or m in t_name for m in ["grafana", "zabbix"])
+                    if es_monitoreo and in_sitio and focused_b.codigo_sitio:
+                        if in_sitio.lower() not in focused_b.codigo_sitio.lower() and focused_b.codigo_sitio.lower() not in in_sitio.lower():
+                            log.info(f"Monitoreo en sitio ajeno descartado ('{in_sitio}' vs caso activo '{focused_b.codigo_sitio}').")
+                            return None, False, False
+
                     # Atribuir paso diagnóstico a la cubeta en curso
                     target_bucket = focused_b
                     target_bucket.update_anchors(anchors)
                 else:
-                    log.info(f"Captura en [{window_title}] descartada por no haber cubeta activa o no ser herramienta técnica.")
+                    if not focused_b:
+                        log.info(f"Captura en [{window_title}] en espera: no hay cubeta activa iniciada en Artemis.")
+                    else:
+                        log.info(f"Captura en [{window_title}] descartada por no ser herramienta técnica.")
                     return None, False, False
 
         # Agregar paso a la cubeta objetivo
