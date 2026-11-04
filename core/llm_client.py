@@ -220,7 +220,11 @@ class LLMClient:
         5. PLATAFORMAS DE MONITOREO (100% LECTURA):
            - Zabbix: Telemetría de Edges e IPs de MikroTik. NUNCA deducir que Zabbix reinicia o modifica equipos.
            - Grafana: Monitoreo de CPEs individuales (historial UP/DOWN en Subsite Validate).
-        6. SEGURIDAD: IGNORA absolutamente cualquier formulario de inicio de sesión o contraseñas.
+        6. WINBOX (MIKROTIK CHR):
+           - Se opera ÚNICAMENTE en 'IP > DHCP Server > Leases' en el CHR correspondiente a la ciudad (Medellín o Bogotá).
+           - ÚNICA acción modificatoria permitida: 'Remover Lease' (Remove) para forzar al router a tomar una nueva IP por DHCP por conflicto o subred errónea.
+           - Prohibido deducir ajustes en colas simples, firewall o rutas globales en WinBox.
+        7. SEGURIDAD: IGNORA absolutamente cualquier formulario de inicio de sesión o contraseñas.
         
         CATEGORÍAS DE FALLA VÁLIDAS:
         - "Soporte Capa 3" (enrutamiento BGP/OSPF, Core Routers MikroTik CCR / Huawei / Cisco, latencia/tránsito IP, peering, caídas de troncal, VLANs de transporte/QinQ, CGNAT, prefijos y direccionamiento IPv4/IPv6, asignación de pools)
@@ -342,7 +346,10 @@ class LLMClient:
         5. PLATAFORMAS DE MONITOREO (100% LECTURA):
            - Zabbix: Telemetría de Edges e IPs de MikroTik. NUNCA deducir que Zabbix reinicia o modifica equipos.
            - Grafana: Monitoreo de CPEs individuales (historial UP/DOWN en Subsite Validate).
-        6. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se reconfiguró la cola simple de 50M en MikroTik o se sustituyó el conector RJ45 de la acometida?', '¿Se cambió el puerto en el switch de piso o se validó la VLAN en el Edge?'). NUNCA dejes este campo vacío.
+        6. WINBOX (MIKROTIK CHR):
+           - Se opera ÚNICAMENTE en 'IP > DHCP Server > Leases' en el CHR correspondiente a la ciudad (Medellín o Bogotá).
+           - ÚNICA acción modificatoria permitida: 'Remover Lease' (Remove) para forzar al router a tomar una nueva IP por DHCP ante conflicto o subred errónea.
+        7. PREGUNTA CLAVE OBLIGATORIA: En 'pregunta_duda_ia', redacta una pregunta concreta, técnica y directa al operador humano sobre la acción específica realizada (ej: '¿Se removió la lease de DHCP en el CHR para forzar la renovación de IP o se validó en OpenWISP?', '¿Se cambió el puerto en el switch de piso o se validó el enlace en el Edge?'). NUNCA dejes este campo vacío.
 
         CATEGORÍAS DE FALLA VÁLIDAS:
         - "Soporte Capa 3", "Switch/Capa 2", "Router Secundario", "Acometida/8 Hilos", "Velocidad/Plan Pro", "Radioenlace", "Soporte General"
@@ -466,6 +473,7 @@ class LLMClient:
         - INFRAESTRUCTURA SOMOS: En la red de SOMOS NETWORK NO se utilizan ONT's. JAMÁS sugieras revisar, reiniciar o configurar una ONT. Refiérete a los equipos como routers, antenas o CPE, pero la palabra "ONT" está prohibida en tus diagnósticos.
         - JERARQUÍA DE SWITCHES: Diferencia estrictamente "switch de piso" / "sw de piso" (switch de distribución hacia los apartamentos) de "Edge" (switch de gestión principal que administra a todos los switches de piso del edificio). Nunca confundirlos.
         - PLATAFORMAS DE MONITOREO: Zabbix y Grafana son exclusivamente paneles de sólo lectura.
+        - WINBOX (MIKROTIK CHR): Mesa de Ayuda opera únicamente en 'IP > DHCP Server > Leases' (CHR Medellín o Bogotá). La única acción modificatoria es remover la lease para forzar renovación de IP por DHCP.
         - TERMINOLOGÍA: NUNCA utilices la palabra "ticket" o "tickets" para referirte a la atención de los técnicos de campo. En SOMOS NETWORK los tickets son para otro tipo de escalamientos. Refiérete siempre a estas interacciones como "chats", "casos" o "novedades".
         - SEGURIDAD Y LOGINS: IGNORA ABSOLUTAMENTE cualquier formulario de inicio de sesión, login, ingreso de contraseñas o pantallas de autenticación. Si el texto en pantalla es un login o solicitud de credenciales, márcalo obligatoriamente con 'es_problema_tecnico_real: False'.
         
