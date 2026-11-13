@@ -1,6 +1,6 @@
-# MesaAyudaAgent v3.0 - SOMOS NETWORK
+# MesaAyudaAgent v3.0 -
 
-Asistente de inteligencia artificial y aprendizaje continuo (RAG Híbrido) para la optimización de la atención técnica de Mesa de Ayuda (Nivel 1 y 2) en **SOMOS NETWORK**.
+Asistente de inteligencia artificial y aprendizaje continuo (RAG Híbrido) para la optimización de la atención técnica de Mesa de Ayuda (Nivel 1 y 2).
 
 ## Características Principales
 
