@@ -34,8 +34,15 @@ manuals_to_ingest = [
     {
         "archivo": os.path.join("data", "manual_zabbix_monitoreo.txt"),
         "id": "protocolo_zabbix_monitoreo",
-        "titulo": "MONITOREO DE INFRAESTRUCTURA Y SWITCHES EDGE EN ZABBIX",
+        "titulo": "MONITOREO DE INFRAESTRUCTURA, EDGES Y SWITCHES DE PISO EN ZABBIX",
         "categoria": "Monitoreo / Infra",
+        "version": "1.1"
+    },
+    {
+        "archivo": os.path.join("data", "manual_winbox_gestion_chr.txt"),
+        "id": "protocolo_winbox_gestion_chr",
+        "titulo": "GESTIÓN DE CHR Y LEASES DHCP EN WINBOX",
+        "categoria": "Capa 3 / Enrutamiento",
         "version": "1.0"
     }
 ]
