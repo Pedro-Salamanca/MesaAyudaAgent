@@ -1,3 +1,4 @@
+import re
 import customtkinter as ctk
 import tkinter as tk
 from typing import Optional, List, Dict
@@ -79,6 +80,8 @@ class AppWindow(ctk.CTk):
         correct_staging_callback=None,
         discard_staging_callback=None,
         refresh_staging_callback=None,
+        mode_change_callback=None,
+        assist_now_callback=None,
         tecnico_nombre="Técnico"
     ):
         super().__init__()
@@ -98,17 +101,21 @@ class AppWindow(ctk.CTk):
         self.correct_staging_callback = correct_staging_callback
         self.discard_staging_callback = discard_staging_callback
         self.refresh_staging_callback = refresh_staging_callback
+        self.mode_change_callback = mode_change_callback
+        self.assist_now_callback = assist_now_callback
         self.tecnico_nombre = tecnico_nombre
-        
-        self.title(f"SOMOS — Mesa de Ayuda | Operador: {self.tecnico_nombre}")
-        self.geometry("1060x860")
+
+        self.title(f"SOMOS — Mesa de Ayuda v4.0 | Operador: {self.tecnico_nombre}")
+        self.geometry("1080x880")
         self.minsize(960, 740)
         self.configure(fg_color=COLOR_BG_APP)
-        
+
         # Estados internos
         self.is_paused = False
         self.is_on_break = False
         self.is_learning_mode = False
+        self.operation_mode = "continuous"
+        self.current_somos_reply = ""
         self.staging_count = 0
 
         # Sistema de 3 Pestañas según SOMOS Design System
@@ -186,7 +193,7 @@ class AppWindow(ctk.CTk):
             font=ctk.CTkFont(family=FONT_DISPLAY, size=12, slant="italic"),
             text_color=COLOR_TEXT_MUTED
         )
-        self.label_no_buckets.pack(side="left", padx=6)
+        self.label_no_buckets.grid(row=0, column=0, padx=6, pady=2, sticky="w")
 
         # ---------------------------------------------------------------------
         # ZONA 1: Estado del Agente, Controles de Turno y Detalle de Cubeta
@@ -216,7 +223,7 @@ class AppWindow(ctk.CTk):
         )
         self.label_status.pack(pady=(1, 4))
 
-        # TOGGLE: MODO SOLO APRENDIZAJE
+        # SELECTOR TRI-MODO v4.0 (Guía Continua | Silencioso + Asistir | Solo Aprendizaje)
         self.frame_learning_mode = ctk.CTkFrame(
             self.frame_state,
             fg_color=COLOR_BG_APP,
@@ -225,18 +232,55 @@ class AppWindow(ctk.CTk):
             corner_radius=6
         )
         self.frame_learning_mode.pack(padx=12, pady=(2, 4), fill="x")
-        
+
+        self.label_mode_header = ctk.CTkLabel(
+            self.frame_learning_mode,
+            text="MODO DE OPERACIÓN (COPILOTO v4.0):",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.label_mode_header.pack(pady=(5, 2))
+
+        self.seg_mode_selector = ctk.CTkSegmentedButton(
+            self.frame_learning_mode,
+            values=["🧭 Guía Continua", "⚡ Silencioso + Asistir", "🎓 Solo Aprendizaje"],
+            command=self._on_segmented_mode_change,
+            fg_color=COLOR_BG_SURFACE,
+            selected_color=COLOR_ACCENT,
+            selected_hover_color=COLOR_ACCENT_HOVER,
+            unselected_color=COLOR_BG_ELEVATED,
+            unselected_hover_color=COLOR_BORDER,
+            text_color="#0A0A0A",
+            text_color_disabled=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
+            height=28,
+            corner_radius=6
+        )
+        self.seg_mode_selector.pack(padx=8, pady=(2, 6), fill="x")
+        self.seg_mode_selector.set("🧭 Guía Continua")
+
+        # Botón de Asistencia Profunda Bajo Demanda (Funciona en Modo Silencioso y Guía Continua)
+        self.btn_assist_now = ctk.CTkButton(
+            self.frame_learning_mode,
+            text="🧠 Asistir Caso Actual (Ctrl+Shift+Espacio)",
+            command=self._on_assist_now,
+            fg_color="#091C16",
+            hover_color=COLOR_SUCCESS,
+            border_width=1,
+            border_color=COLOR_SUCCESS_BORDER,
+            text_color=COLOR_SUCCESS,
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold")
+        )
+        self.btn_assist_now.pack(padx=8, pady=(0, 6), fill="x")
+
+        # Switch oculto de compatibilidad interna para tests que consulten switch_learning_mode
         self.switch_learning_mode = ctk.CTkSwitch(
             self.frame_learning_mode,
             text="Modo Solo Aprendizaje",
-            command=self._toggle_learning_mode,
-            font=ctk.CTkFont(family=FONT_DISPLAY, size=12, weight="bold"),
-            text_color=COLOR_TEXT_PRIMARY,
-            progress_color=COLOR_ACCENT,
-            button_color=COLOR_TEXT_PRIMARY,
-            button_hover_color=COLOR_TEXT_SECONDARY
+            command=self._toggle_learning_mode
         )
-        self.switch_learning_mode.pack(padx=12, pady=6)
 
         # CONTENEDOR DE BOTONES DE PAUSA
         self.frame_pause_buttons = ctk.CTkFrame(self.frame_state, fg_color="transparent")
@@ -337,7 +381,7 @@ class AppWindow(ctk.CTk):
         self.textbox_eye.configure(state="disabled")
         
         # ---------------------------------------------------------------------
-        # ZONA 3: Inferencia (Diagnóstico de IA y Compresión de Bloques)
+        # ZONA 3: Inferencia (Diagnóstico Guiado, Árbol Determinista y Tono SOMOS)
         # ---------------------------------------------------------------------
         self.frame_inference = ctk.CTkFrame(
             self.tab_obs,
@@ -347,15 +391,65 @@ class AppWindow(ctk.CTk):
             corner_radius=8
         )
         self.frame_inference.grid(row=2, column=0, padx=8, pady=4, sticky="nsew")
-        
+
         self.label_inference_title = ctk.CTkLabel(
             self.frame_inference,
-            text="INFERENCIA (DIAGNÓSTICO DE IA)",
+            text="🌲 DIAGNÓSTICO GUIADO & ÁRBOL DE DESCARTE (v4.0)",
             font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold"),
-            text_color=COLOR_TEXT_MUTED
+            text_color=COLOR_ACCENT
         )
         self.label_inference_title.pack(pady=(8, 4))
-        
+
+        # Sub-tarjeta inferior: Respuesta Sugerida con Tono SOMOS + Botón Copiar 1-Clic
+        self.frame_somos_reply = ctk.CTkFrame(
+            self.frame_inference,
+            fg_color=COLOR_BG_APP,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=6
+        )
+        self.frame_somos_reply.pack(side="bottom", fill="x", padx=10, pady=(2, 8))
+
+        self.frame_somos_header = ctk.CTkFrame(self.frame_somos_reply, fg_color="transparent")
+        self.frame_somos_header.pack(fill="x", padx=8, pady=(5, 2))
+
+        self.label_somos_reply_title = ctk.CTkLabel(
+            self.frame_somos_header,
+            text="💬 RESPUESTA SUGERIDA (TONO SOMOS):",
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold"),
+            text_color=COLOR_SUCCESS
+        )
+        self.label_somos_reply_title.pack(side="left")
+
+        self.btn_copy_somos = ctk.CTkButton(
+            self.frame_somos_header,
+            text="📋 Copiar Respuesta",
+            command=self._copy_somos_reply,
+            fg_color=COLOR_BG_ELEVATED,
+            hover_color=COLOR_ACCENT,
+            border_width=1,
+            border_color=COLOR_ACCENT,
+            text_color=COLOR_TEXT_PRIMARY,
+            width=130,
+            height=24,
+            corner_radius=5,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=10, weight="bold")
+        )
+        self.btn_copy_somos.pack(side="right")
+
+        self.textbox_somos_reply = ctk.CTkTextbox(
+            self.frame_somos_reply,
+            wrap="word",
+            height=58,
+            fg_color=COLOR_BG_SURFACE,
+            text_color=COLOR_TEXT_SECONDARY,
+            border_width=0,
+            font=ctk.CTkFont(family=FONT_DISPLAY, size=11)
+        )
+        self.textbox_somos_reply.pack(fill="x", padx=8, pady=(0, 6))
+        self.textbox_somos_reply.insert("0.0", "La respuesta sugerida en tono SOMOS aparecerá aquí lista para copiar...")
+        self.textbox_somos_reply.configure(state="disabled")
+
         self.textbox_inference = ctk.CTkTextbox(
             self.frame_inference,
             wrap="word",
@@ -365,8 +459,8 @@ class AppWindow(ctk.CTk):
             border_color=COLOR_BORDER,
             font=ctk.CTkFont(family=FONT_DISPLAY, size=12)
         )
-        self.textbox_inference.pack(padx=10, pady=(0, 8), fill="both", expand=True)
-        self.textbox_inference.insert("0.0", "Buscando anomalías y correlacionando cubetas...")
+        self.textbox_inference.pack(side="top", padx=10, pady=(0, 4), fill="both", expand=True)
+        self.textbox_inference.insert("0.0", "Esperando estabilización visual (3.5s) o clic en '🧠 Asistir Caso Actual'...")
         self.textbox_inference.configure(state="disabled")
         
         # ---------------------------------------------------------------------
@@ -872,27 +966,66 @@ class AppWindow(ctk.CTk):
             btn_del.pack(anchor="e", padx=12, pady=(0, 6))
 
     # =========================================================================
-    # GESTIÓN DE CUBETAS CONCURRENTES EN INTERFAZ
+    # GESTIÓN DE CUBETAS CONCURRENTES EN INTERFAZ (BARRA ADAPTATIVA)
     # =========================================================================
+    @staticmethod
+    def _format_compact_tecnico(raw_tec: str) -> str:
+        """Compacta el nombre del técnico para que quepa nítidamente en la píldora adaptativa."""
+        if not raw_tec:
+            return "Técnico"
+        clean = re.sub(r'^(?:TS|TEC|T[EÉ]CNICO)\s+', '', raw_tec.strip(), flags=re.IGNORECASE).strip()
+        words = [w for w in clean.split() if w]
+        if len(words) >= 3:
+            # Mostrar las 2 primeras palabras significativas (ej. "Nicolas Emerson" o "Hinestroza Escobar")
+            short = f"{words[0]} {words[1]}"
+        else:
+            short = " ".join(words)
+        return short[:20] + "…" if len(short) > 21 else short
+
+    @staticmethod
+    def _format_compact_sitio(raw_sitio: str) -> str:
+        """Elimina prefijos redundantes (SOMOS-MDE- / SOMOS-BTA-) en la píldora sin perder Nodo-Torre-Apto."""
+        if not raw_sitio:
+            return "Sin Sitio"
+        s = raw_sitio.strip()
+        s = re.sub(r'^SOMOS-(?:MDE|BTA|BOG|CAL|BAQ)-', '', s, flags=re.IGNORECASE)
+        s = re.sub(r'^SOMOS-', '', s, flags=re.IGNORECASE)
+        # Si termina en sufijo -1 de puerto/subinterfaz en nombres muy largos, mantener lo esencial
+        if len(s) > 16 and s.endswith("-1"):
+            s = s[:-2]
+        return s[:18]
+
     def update_buckets_pills(self, buckets_summary: List[Dict]):
         """
-        Renderiza dinámicamente las píldoras de las hasta 5 cubetas activas en la barra superior.
-        summary: [{'id': str, 'tecnico': str, 'sitio': str, 'steps_count': int, 'inactive_min': int, 'is_focused': bool}]
+        Renderiza dinámicamente las píldoras de las hasta 5 cubetas activas en una cuadrícula adaptativa.
+        - 1 a 3 cubetas: 1 fila auto-ajustable (hasta 3 columnas proporcionales).
+        - 4 a 5 cubetas: 2 filas auto-ajustables (3 arriba + 1 o 2 abajo) para que NUNCA se recorte ninguna cubeta.
         """
         for btn in self.pill_buttons:
             btn.destroy()
         self.pill_buttons.clear()
 
+        for col_idx in range(5):
+            self.frame_pills_container.grid_columnconfigure(col_idx, weight=0)
+
         if not buckets_summary:
-            self.label_no_buckets.pack(side="left", padx=6)
+            self.label_no_buckets.grid(row=0, column=0, padx=6, pady=2, sticky="w")
             return
 
-        self.label_no_buckets.pack_forget()
+        self.label_no_buckets.grid_forget()
 
-        for b in buckets_summary:
+        total_buckets = len(buckets_summary)
+        max_cols = 3 if total_buckets >= 3 else total_buckets
+        for col_idx in range(max_cols):
+            self.frame_pills_container.grid_columnconfigure(col_idx, weight=1)
+
+        for idx, b in enumerate(buckets_summary):
             b_id = b["id"]
             inac = b.get("inactive_min", 0)
-            label_text = f"● {b['tecnico']} ({b['sitio']}) | {b['steps_count']}p ({inac}m)"
+            steps = b.get("total_steps", b.get("steps_count", 0))
+            tec_short = self._format_compact_tecnico(b.get("tecnico", ""))
+            sitio_short = self._format_compact_sitio(b.get("sitio", ""))
+            label_text = f"● {tec_short} ({sitio_short}) | {steps}p ({inac}m)"
             
             if b["is_focused"]:
                 fg = COLOR_ACCENT
@@ -904,6 +1037,9 @@ class AppWindow(ctk.CTk):
                 text_c = COLOR_TEXT_MUTED
                 hover = COLOR_BORDER
                 border_c = COLOR_BORDER
+
+            row_idx = idx // max_cols
+            col_idx = idx % max_cols
 
             btn = ctk.CTkButton(
                 self.frame_pills_container,
@@ -918,7 +1054,7 @@ class AppWindow(ctk.CTk):
                 corner_radius=6,
                 font=ctk.CTkFont(family=FONT_DISPLAY, size=11, weight="bold" if b["is_focused"] else "normal")
             )
-            btn.pack(side="left", padx=3)
+            btn.grid(row=row_idx, column=col_idx, padx=3, pady=2, sticky="ew")
             self.pill_buttons.append(btn)
 
     def update_bucket_info(self, info_text: str):
@@ -935,12 +1071,67 @@ class AppWindow(ctk.CTk):
         except Exception as e:
             log.warning(f"Error cambiando a pestaña {tab_name}: {e}")
 
+    def _on_segmented_mode_change(self, selected_label: str):
+        """Maneja el cambio entre los 3 modos operativos del Copiloto v4.0."""
+        if "Aprendizaje" in selected_label:
+            mode_code = "learning"
+            self.is_learning_mode = True
+            self.set_state("learning")
+        elif "Silencioso" in selected_label:
+            mode_code = "on_demand"
+            self.is_learning_mode = False
+            self.set_state("on_demand")
+        else:
+            mode_code = "continuous"
+            self.is_learning_mode = False
+            self.set_state("active")
+
+        self.operation_mode = mode_code
+        if self.mode_change_callback:
+            self.mode_change_callback(mode_code)
+        elif self.toggle_learning_mode_callback:
+            self.toggle_learning_mode_callback(self.is_learning_mode)
+
+    def _on_assist_now(self):
+        """Dispara asistencia guiada inmediata sobre la cubeta enfocada."""
+        if self.assist_now_callback:
+            self.assist_now_callback()
+
+    def _copy_somos_reply(self):
+        """Copia el mensaje sugerido en tono SOMOS al portapapeles de Windows en 1 clic."""
+        txt = (self.current_somos_reply or "").strip()
+        if not txt:
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(txt)
+            self.update()
+            self.btn_copy_somos.configure(text="✅ ¡Copiado!", fg_color=COLOR_SUCCESS_BG, text_color=COLOR_SUCCESS)
+            self.after(1800, lambda: self.btn_copy_somos.configure(
+                text="📋 Copiar Respuesta", fg_color=COLOR_BG_ELEVATED, text_color=COLOR_TEXT_PRIMARY
+            ))
+        except Exception as e:
+            log.warning(f"No se pudo copiar al portapapeles: {e}")
+
+    def update_somos_suggestion(self, text: str):
+        """Actualiza el cuadro de respuesta sugerida con Tono SOMOS en la Zona 3."""
+        self.current_somos_reply = (text or "").strip()
+        self.textbox_somos_reply.configure(state="normal")
+        self.textbox_somos_reply.delete("0.0", "end")
+        self.textbox_somos_reply.insert(
+            "0.0",
+            self.current_somos_reply if self.current_somos_reply else "Sin respuesta sugerida activa."
+        )
+        self.textbox_somos_reply.configure(state="disabled")
+
     def _toggle_learning_mode(self):
-        """Activa o desactiva el Modo Solo Aprendizaje desde el switch del operador."""
+        """Activa o desactiva el Modo Solo Aprendizaje por compatibilidad."""
         self.is_learning_mode = bool(self.switch_learning_mode.get())
         if self.is_learning_mode:
+            self.operation_mode = "learning"
             self.set_state("learning")
         else:
+            self.operation_mode = "continuous"
             self.set_state("active")
         if self.toggle_learning_mode_callback:
             self.toggle_learning_mode_callback(self.is_learning_mode)
@@ -955,9 +1146,10 @@ class AppWindow(ctk.CTk):
                 self.pause_break_callback(True)
         else:
             self.is_paused = False
-            # SI EL MODO SOLO APRENDIZAJE ESTABA ACTIVO, RESTAURAR 'learning', NO 'active'
-            if self.is_learning_mode:
+            if self.is_learning_mode or self.operation_mode == "learning":
                 self.set_state("learning")
+            elif self.operation_mode == "on_demand":
+                self.set_state("on_demand")
             else:
                 self.set_state("active")
             if self.pause_break_callback:
@@ -996,11 +1188,14 @@ class AppWindow(ctk.CTk):
             self.is_paused = False
             self.is_on_break = False
             self.is_learning_mode = True
+            self.operation_mode = "learning"
+            if hasattr(self, "seg_mode_selector"):
+                self.seg_mode_selector.set("🎓 Solo Aprendizaje")
             if self.switch_learning_mode.get() != 1:
                 self.switch_learning_mode.select()
 
-        elif state_low == "active":
-            self.label_status.configure(text="● ACTIVO", text_color=COLOR_SUCCESS)
+        elif state_low == "on_demand":
+            self.label_status.configure(text="● SILENCIOSO + ASISTIR", text_color=COLOR_PURPLE)
             self.btn_break_pause.configure(
                 text="⏸️ Pausa de Turno (Break)",
                 fg_color=COLOR_BG_ELEVATED,
@@ -1010,6 +1205,26 @@ class AppWindow(ctk.CTk):
             self.is_paused = False
             self.is_on_break = False
             self.is_learning_mode = False
+            self.operation_mode = "on_demand"
+            if hasattr(self, "seg_mode_selector"):
+                self.seg_mode_selector.set("⚡ Silencioso + Asistir")
+            if self.switch_learning_mode.get() != 0:
+                self.switch_learning_mode.deselect()
+
+        elif state_low == "active":
+            self.label_status.configure(text="● GUÍA CONTINUA", text_color=COLOR_SUCCESS)
+            self.btn_break_pause.configure(
+                text="⏸️ Pausa de Turno (Break)",
+                fg_color=COLOR_BG_ELEVATED,
+                border_color=COLOR_BORDER,
+                text_color=COLOR_TEXT_SECONDARY
+            )
+            self.is_paused = False
+            self.is_on_break = False
+            self.is_learning_mode = False
+            self.operation_mode = "continuous"
+            if hasattr(self, "seg_mode_selector"):
+                self.seg_mode_selector.set("🧭 Guía Continua")
             if self.switch_learning_mode.get() != 0:
                 self.switch_learning_mode.deselect()
 

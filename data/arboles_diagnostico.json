@@ -1,0 +1,254 @@
+{
+  "version": "2.0",
+  "fecha_actualizacion": "2026-11-19",
+  "politica_terminologia": "Zero-ONT (todo router de cliente es CPE principal/secundario/mesh). Tickets solo para fallas masivas NOC.",
+  "arboles": {
+    "Router Secundario": {
+      "titulo": "Diagnóstico Guiado: CPE Secundario / Mesh / Configuración Wi-Fi (OpenWISP, LuCI, Vilo)",
+      "manuales_asociados": [
+        "protocolo_openwisp_phantom_orb",
+        "protocolo_vilo_inventory"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Descarte Físico y Enlace LAN",
+          "condicion_omitir_si_cubeta_contiene": [
+            "1g",
+            "1000",
+            "linkea bien",
+            "cable ok",
+            "ponchado ok"
+          ],
+          "verificacion": "¿El puerto LAN entre el CPE principal y el CPE secundario negocia a 1 Gbps o a 100 Mbps (o LEDs Wi-Fi apagados)?",
+          "accion_si_falla": "Si negocia a 100 Mbps o no da enlace físico, revisar ponchado RJ45 (8 hilos) del tramo intermedio. Si los LEDs de bandas están apagados, desconectar de energía 1 min o aplicar reset físico ('chuzar' 1 min) y esperar 5–10 min.",
+          "sugerencia_tono_somos": "Compa, valida porfa primero si el tramo entre el CPE principal y el secundario está linkeando a 1G y si ya lo reiniciaste de la energía. Si está a 100 megas, revisa el ponchado RJ45."
+        },
+        {
+          "paso": 2,
+          "fase": "Plantilla, Prefijo MAC y Gestión (OpenWISP / Vilo)",
+          "condicion_omitir_si_cubeta_contiene": [
+            "plantilla ok",
+            "vpn2",
+            "ya subio en openwisp",
+            "vilo online"
+          ],
+          "verificacion": "Verificar prefijo MAC: si inicia en E8: gestionar en Vilo Living; si es Phantom/ORB gestionar en OpenWISP/LuCI.",
+          "accion_si_falla": "En OpenWISP asignar hostname canónico SOMOS-[CIUDAD]-[SITIO]-T[TORRE]-[APTO]-[NUM], plantilla '2026-Secundario' con etiqueta 'VPN2', y verificar que Last IP y Management IP NO sean iguales en el secundario.",
+          "sugerencia_tono_somos": "Compa, ya le ajusté la plantilla y configuración desde plataforma. Espera porfa unos 5 minutos que tome cambios y levante las bandas Wi-Fi y me confirmas."
+        },
+        {
+          "paso": 3,
+          "fase": "Configuración Manual de SSID / Contingencia App Artemis",
+          "condicion_omitir_si_cubeta_contiene": [
+            "ssid configurado",
+            "redes listas",
+            "ya aparecen las bandas"
+          ],
+          "verificacion": "¿La app Artemis bloqueó el cambio de nombre de red/clave o las bandas 2.4G/5G siguen con nombre por defecto?",
+          "accion_si_falla": "Solicitar al técnico el nombre de red (SSID) y contraseña deseados por el usuario, aplicarlos en OpenWISP/LuCI o Vilo y recordar la ventana de propagación de radio de 5 a 10 minutos.",
+          "sugerencia_tono_somos": "Compa, regálame porfa el nombre de red y la clave que desea el usuario para dejártela configurada desde acá; recuerda darle 5 a 10 minuticos para que propague la señal Wi-Fi."
+        }
+      ]
+    },
+    "Switch/Capa 2": {
+      "titulo": "Diagnóstico Guiado: Switch de Piso, Cascadas en Montante, Puertos y PoE",
+      "manuales_asociados": [
+        "protocolo_switches_montante_poe",
+        "protocolo_zabbix_monitoreo"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Pre-Registro Obligatorio de MAC del Switch",
+          "condicion_omitir_si_cubeta_contiene": [
+            "sw registrado",
+            "mac registrada",
+            "ya tiene gestion"
+          ],
+          "verificacion": "¿El switch de piso en cascada fue instalado/cambiado y no toma gestión ni entrega IP?",
+          "accion_si_falla": "Validar y registrar primero la dirección MAC del switch en la plataforma (indicando Torre, Piso y puerto). Sin pre-registro el switch no adquirirá IP de gestión.",
+          "sugerencia_tono_somos": "Compa, regálame porfa la MAC del switch, torre y piso para validar si ya está registrado en el sistema y darle gestión."
+        },
+        {
+          "paso": 2,
+          "fase": "Cascada Alimentadora, Voltaje PoE y Vecinos",
+          "condicion_omitir_si_cubeta_contiene": [
+            "vecinos ok",
+            "cascada encendida",
+            "poe descartado"
+          ],
+          "verificacion": "¿Otros apartamentos del mismo switch navegan o todo el switch de piso está caído?",
+          "accion_si_falla": "Si solo falla este apartamento, probar otro puerto del switch o descartar PoE. Si todo el switch está caído, revisar en Zabbix el Edge del sitio y verificar físicamente si viene en cascada desde otro piso intermedio o si presenta bloqueo térmico.",
+          "sugerencia_tono_somos": "Compa, valida porfa en el montante si el switch alimentador de la cascada está encendido y prueba cambiando de puerto en el switch de piso."
+        },
+        {
+          "paso": 3,
+          "fase": "Liberación de Puerto en Switch Copado",
+          "condicion_omitir_si_cubeta_contiene": [
+            "puerto libre",
+            "puerto autorizado"
+          ],
+          "verificacion": "¿El switch de piso está copado (sin puertos libres)?",
+          "accion_si_falla": "Solicitar listado de apartamentos marcados en los cables del switch para consultar en sistema cuáles están retirados/inactivos. Prohibido usar el puerto de consola del Edge.",
+          "sugerencia_tono_somos": "Compa, envíame porfa los apartamentos que están marcados en el switch para validarte en sistema cuál está inactivo o retirado y puedas usar ese puerto."
+        }
+      ]
+    },
+    "Acometida/8 Hilos": {
+      "titulo": "Diagnóstico Guiado: Acometida UTP 8 Hilos, Negociación 100M vs 1G y Conectores RJ45",
+      "manuales_asociados": [
+        "checklist_validaciones_sitio"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Verificación de Negociación Física (100 Mbps vs 1 Gbps)",
+          "condicion_omitir_si_cubeta_contiene": [
+            "linkea a 1g",
+            "1000mbps",
+            "reponchado"
+          ],
+          "verificacion": "¿El puerto WAN del CPE o el puerto del switch de piso negocia a 100 Mbps (base 100) o pierde enlace?",
+          "accion_si_falla": "Exigir reponchado de conectores RJ45 en ambos extremos asegurando los 8 hilos limpios (sin sulfatación ni pares 4-5 / 7-8 abiertos) y descartar con otro patch cord o inyector PoE Gigabit.",
+          "sugerencia_tono_somos": "Compa, el puerto me aparece negociando a 100 megas por falla física en los 8 hilos. Porfa reponcha los conectores RJ45 o descarta con otro PoE/patch cord para que suba a 1G."
+        },
+        {
+          "paso": 2,
+          "fase": "Prueba de Aislamiento Directa a la Vertical con PC",
+          "condicion_omitir_si_cubeta_contiene": [
+            "pc directo",
+            "prueba en vertical"
+          ],
+          "verificacion": "¿Persiste la caída o degradación después de revisar conectores en el apartamento?",
+          "accion_si_falla": "Conectar el portátil del técnico directamente en el puerto del switch de piso (vertical) para aislar si el daño está en el tramo de acometida hacia el apartamento.",
+          "sugerencia_tono_somos": "Compa, haz porfa una prueba conectando tu PC directo en el switch de piso para descartar si el tramo de acometida hacia el apto está averiado."
+        }
+      ]
+    },
+    "Velocidad/Plan Pro": {
+      "titulo": "Diagnóstico Guiado: Velocidad Degradada, Plan Pro (2 Gbps), Bloqueo Speedtest Artemis y RADIUS",
+      "manuales_asociados": [
+        "protocolo_aprovisionamiento_radius_artemis",
+        "checklist_validaciones_sitio"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Descarte de Cuello de Botella a 100 Mbps en Cadena Física",
+          "condicion_omitir_si_cubeta_contiene": [
+            "ya subio a 900",
+            "ya da 2gb",
+            "negocia a 1g"
+          ],
+          "verificacion": "¿El speedtest en Artemis se queda en ~90–95 Mbps impidiendo continuar la orden?",
+          "accion_si_falla": "Revisar negociación física en toda la cadena: Switch -> PoE -> WAN CPE Principal -> LAN CPE Secundario. Un solo tramo a 100 Mbps limita todo el test a ~90 Mbps.",
+          "sugerencia_tono_somos": "Compa, como te está dando ~90 megas hay un tramo limitando a 100M. Revisa porfa el conector RJ45 o el PoE; apenas suba a 1G te deja pasar la prueba."
+        },
+        {
+          "paso": 2,
+          "fase": "Autenticación RADIUS y Renovación DHCP en CHR",
+          "condicion_omitir_si_cubeta_contiene": [
+            "autenticado en radius",
+            "lease removida"
+          ],
+          "verificacion": "¿El CPE no autentica en RADIUS ('No Radius') o tomó perfil/IP anterior tras un traslado o cambio?",
+          "accion_si_falla": "En Artemis pulsar 'Autenticar'; validar MAC en orden; y en WinBox (IP > DHCP Server > Leases) remover la lease para forzar renovación de IP limpia (sin tocar colas simples).",
+          "sugerencia_tono_somos": "Compa, dale porfa al botón Autenticar en Artemis y reinicia el CPE del tomacorriente que ya le refresqué la asignación desde acá."
+        }
+      ]
+    },
+    "Soporte Capa 3": {
+      "titulo": "Diagnóstico Guiado: DHCP Leases en WinBox CHR, Estado 'Offered', Cambio de IP y Fallas Masivas",
+      "manuales_asociados": [
+        "protocolo_winbox_gestion_chr",
+        "protocolo_zabbix_monitoreo"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Revisión de Lease DHCP en CHR (Medellín / Bogotá)",
+          "condicion_omitir_si_cubeta_contiene": [
+            "lease removida",
+            "bound"
+          ],
+          "verificacion": "¿El CPE enciende WAN pero no navega o figura en estado 'offered' o con IP fuera de rango en WinBox?",
+          "accion_si_falla": "Ingresar a WinBox en el CHR de la ciudad correspondiente -> IP > DHCP Server > Leases -> buscar MAC -> ejecutar 'Remove' (única acción permitida) y pedir reinicio eléctrico del CPE.",
+          "sugerencia_tono_somos": "Compa, el CPE se había quedado pegado en estado offered en el DHCP. Ya le liberé la sesión; porfa desconéctalo de la energía 30 segundos, vuelve a conectarlo y valida."
+        },
+        {
+          "paso": 2,
+          "fase": "Escalamiento de Cambio de IP o Validación de Afectación Masiva NOC",
+          "condicion_omitir_si_cubeta_contiene": [
+            "slack",
+            "afectacion masiva"
+          ],
+          "verificacion": "¿El sitio completo o múltiples pisos están caídos en Zabbix, o requiere reasignación de IP por Slack?",
+          "accion_si_falla": "Si el Edge o varios switches de piso están caídos por energía/fibra, verificar si existe reporte NOC de unidad residencial. Si es bloqueo puntual de IP tras remover lease, solicitar cambio de IP por canal interno y reiniciar CPE.",
+          "sugerencia_tono_somos": "Compa, validando en monitoreo el sitio presenta una afectación general en los switches por energía; coordina porfa con tu supervisor según el reporte del nodo."
+        }
+      ]
+    },
+    "Radioenlace": {
+      "titulo": "Diagnóstico Guiado: Enlaces Inalámbricos, Antenas, Alineación RF y CCQ",
+      "manuales_asociados": [
+        "protocolo_aprovisionamiento_radius_artemis",
+        "checklist_validaciones_sitio"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Energía PoE, Cable Exterior Blindado y Negociación LAN de la Antena",
+          "condicion_omitir_si_cubeta_contiene": [
+            "poe ok",
+            "antena encendida"
+          ],
+          "verificacion": "¿La antena/radioenlace enciende con voltaje PoE estable y su bajante blindada exterior negocia a 1 Gbps sin pérdidas ni falsos contactos?",
+          "accion_si_falla": "Verificar voltaje y estado del inyector PoE, revisar conector RJ45 blindado exterior (8 hilos limpios sin humedad ni sulfatación) y validar que el enlace hacia el CPE principal negocie a 1 Gbps y no a 100 Mbps.",
+          "sugerencia_tono_somos": "Compa, valida porfa primero el voltaje del PoE de la antena, el conector RJ45 del cable negro exterior (8 hilos sin humedad) y que el puerto LAN esté negociando a 1G sin falsos contactos."
+        },
+        {
+          "paso": 2,
+          "fase": "Niveles de Señal RF (dBm), CCQ, Ruido y Alineación",
+          "condicion_omitir_si_cubeta_contiene": [
+            "señal ok",
+            "ccq ok"
+          ],
+          "verificacion": "¿El radioenlace presenta CCQ bajo, niveles de señal degradados (dBm), ruido RF/interferencia, pérdida de paquetes o desalineación frente a la estación base?",
+          "accion_si_falla": "Revisar en la interfaz del enlace los niveles de señal (dBm objetivo estable en ambas cadenas), porcentaje de CCQ, piso de ruido RF/interferencia en el canal, línea de vista y alineación física de la antena; confirmar gestión IP y estabilidad de ping sin pérdida de paquetes.",
+          "sugerencia_tono_somos": "Compa, revisemos niveles de señal (dBm), porcentaje de CCQ, piso de ruido RF y alineación física de la antena frente a la estación base porque se observa degradación inalámbrica y pérdida de paquetes."
+        }
+      ]
+    },
+    "Soporte General": {
+      "titulo": "Diagnóstico Guiado: Consultas de Estabilidad (Grafana), Validaciones en Sitio y Gestión General",
+      "manuales_asociados": [
+        "protocolo_grafana_monitoreo",
+        "checklist_validaciones_sitio"
+      ],
+      "pasos": [
+        {
+          "paso": 1,
+          "fase": "Identificación de Visita, Sitio y MAC del CPE",
+          "condicion_omitir_si_cubeta_contiene": [
+            "mac",
+            "id_visita"
+          ],
+          "verificacion": "Confirmar ID de la cita/visita, código de sitio y dirección MAC del CPE o switch a consultar.",
+          "accion_si_falla": "Solicitar ID de visita y MAC para ubicar el servicio en Artemis, Selene, OpenWISP, Vilo o Grafana.",
+          "sugerencia_tono_somos": "Hola compa, regálame porfa el ID de la visita y la MAC del CPE para validarte de una."
+        },
+        {
+          "paso": 2,
+          "fase": "Validación en Plataforma Correspondiente (Grafana / Selene / OpenWISP)",
+          "condicion_omitir_si_cubeta_contiene": [
+            "validado"
+          ],
+          "verificacion": "Si solicita historial de caídas, consultar Subsite Validate en Grafana; si solicita estado de suscripción/equipos, validar en Artemis/Selene.",
+          "accion_si_falla": "Compartir hallazgo de estabilidad o confirmar estado activo del servicio y parámetros del CPE.",
+          "sugerencia_tono_somos": "Compa, ya te validé en el sistema y el CPE se encuentra en línea y con parámetros correctos; confirma porfa navegación en sitio."
+        }
+      ]
+    }
+  }
+}

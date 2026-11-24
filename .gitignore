@@ -23,7 +23,8 @@ memory.db
 Backup_DB/
 
 # 3. CASOS HISTÓRICOS Y CHECKPOINTS DE CUBETAS
-data/
+data/*
+!data/arboles_diagnostico.json
 Cases/
 caso_*.json
 active_buckets_checkpoint.json
